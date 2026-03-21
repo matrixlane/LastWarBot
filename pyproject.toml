@@ -1,0 +1,36 @@
+﻿[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lastwar-bot"
+version = "0.1.0"
+description = "Automation bot for Last War: Survival on Windows"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "keyboard>=0.13.5",
+    "mss>=9.0.1",
+    "numpy>=1.26.4",
+    "opencv-python>=4.10.0.84,<4.14",
+    "paddleocr==2.10.0",
+    "paddlepaddle==2.6.2",
+    "Pillow>=10.4.0",
+    "psutil>=5.9.8",
+    "PyAutoGUI>=0.9.54",
+    "PyYAML>=6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["lastwar_bot*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

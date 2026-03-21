@@ -1,0 +1,33 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+
+# Packaging and local build outputs
+build/
+dist/
+release/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs and runtime artifacts
+logs/
+*.log
+bot.stdout.log
+bot.stderr.log
+bot_exe_stdout.log
+bot_exe_stderr.log
+
+# Local tool state
+.codex/
+
+# Sensitive local screenshots and sample captures
+screenshots/
+images/samples/
+
+# Optional local overrides
+config.local.yaml

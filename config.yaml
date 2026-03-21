@@ -1,0 +1,102 @@
+loop:
+  interval_seconds: 3.0
+
+window:
+  process_name: "LastWar.exe"
+  title_contains: "Last War"
+  client_width: 1920
+  client_height: 1080
+  force_foreground_each_cycle: true
+  f11_settle_seconds: 1.5
+  resize_settle_seconds: 0.5
+
+matching:
+  images_dir: "images/templates"
+  thresholds:
+    base: 0.68
+    world: 0.68
+    handshake: 0.78
+    excavator: 0.56
+    station: 0.68
+    station_zoomed_out: 0.78
+    ur_fragment: 0.86
+    cargo_refresh_button: 0.72
+    cargo_power_icon: 0.78
+  regions:
+    handshake: [0.72, 0.58, 0.99, 0.92]
+    excavator: [0.534, 0.809, 0.620, 0.917]
+    station: [0.00, 0.00, 0.60, 0.60]
+    station_zoomed_out_icon: [0.00, 0.00, 0.35, 0.35]
+    station_zoomed_out_full: [0.00, 0.00, 0.40, 0.40]
+    ur_fragment: [0.00, 0.72, 0.75, 1.00]
+    cargo_refresh_button: [0.58, 0.00, 0.72, 0.12]
+    cargo_power_icon: [0.08, 0.64, 0.50, 0.90]
+
+# 1 资源
+ocr:
+  enabled: true
+  stats_enabled: true
+  language: "ch"
+  use_gpu: false
+  interval_seconds: 60.0
+  regions:
+    level: [8, 38, 78, 94]
+    stamina: [0, 84, 92, 134]
+    food: [76, 0, 206, 46]
+    iron: [214, 0, 334, 46]
+    gold: [336, 0, 456, 46]
+    power: [84, 48, 266, 108]
+    diamonds: [1788, 0, 1918, 56]
+
+# 2 同盟帮助
+cooldowns:
+  handshake_seconds: 3.0
+  excavator_alert_seconds: 60.0
+
+# 3 挖掘机
+sounds:
+  handshake_enabled: true
+  excavator_enabled: true
+  high_value_truck_enabled: true
+
+event_log:
+  enabled: true
+  directory: "logs/events"
+
+openclaw:
+  enabled: false
+  startup_enabled: false
+  excavator_enabled: true
+  mode: "cli"
+  url: "http://127.0.0.1:18789/message"
+  headers:
+    Content-Type: "application/json"
+  payload_template:
+    message: "{message}"
+    source: "lastwar-bot"
+    event: "{event}"
+  cli_executable: '%APPDATA%\npm\openclaw.cmd'
+  cli_agent: "main"
+  cli_target: "qqbot:c2c:{OPEN_ID}"
+  cli_command:
+    - "{cli_executable}"
+    - "agent"
+    - "--agent"
+    - "{cli_agent}"
+    - "--deliver"
+    - "--message"
+    - "{message}"
+    - "--to"
+    - "{cli_target}"
+
+# 4 货车
+cargo:
+  min_target_power_m: 0.0
+  ur_fragment_alert_count: 2
+  max_refresh_attempts: 99
+  inspection_wait_seconds: 0.6
+  refresh_wait_seconds: 1.0
+  enter_wait_seconds: 1.0
+  enter_retry_count: 3
+  refresh_button_x_ratio: 0.6404
+  refresh_button_y_ratio: 0.0455
