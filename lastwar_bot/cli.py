@@ -34,7 +34,7 @@ def main() -> int:
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
     already_exists = ctypes.GetLastError() == 183
     if already_exists:
-        print("Last War Bot ?????????????????")
+        print("Last War Bot 已有实例正在运行。")
         if mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
         return _EXIT_ALREADY_RUNNING
