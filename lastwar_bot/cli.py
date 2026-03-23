@@ -9,7 +9,8 @@ from .config import load_config
 from .runtime import LastWarBot
 
 
-_MUTEX_NAME = "Local\LastWarBot_SingleInstance"
+_MUTEX_NAME = r"Local\LastWarBot_SingleInstance"
+_EXIT_ALREADY_RUNNING = 100
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,7 +37,7 @@ def main() -> int:
         print("Last War Bot ?????????????????")
         if mutex:
             ctypes.windll.kernel32.CloseHandle(mutex)
-        return 1
+        return _EXIT_ALREADY_RUNNING
 
     try:
         root_dir = _runtime_root(args.config)

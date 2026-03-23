@@ -176,3 +176,128 @@ def test_detect_cargo_refresh_button_in_full_screen_sample():
 
     assert result is not None
     assert result.template_name == "cargo_refresh_button"
+
+
+def test_detect_scaled_ur_fragment_template():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    template = matcher.templates["ur_fragment"]
+    scaled = cv2.resize(template, None, fx=1.1, fy=1.1, interpolation=cv2.INTER_CUBIC)
+    x, y = 900, 860
+    h, w = scaled.shape[:2]
+    frame[y : y + h, x : x + w] = scaled
+
+    result = matcher.find_ur_fragments(frame)
+
+    assert len(result) == 1
+
+
+def test_detect_scaled_cargo_power_icon_template():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    template = matcher.templates["cargo_power_icon"]
+    scaled = cv2.resize(template, None, fx=0.95, fy=0.95, interpolation=cv2.INTER_CUBIC)
+    x, y = 300, 760
+    h, w = scaled.shape[:2]
+    frame[y : y + h, x : x + w] = scaled
+
+    result = matcher.find_cargo_power_icon(frame)
+
+    assert result is not None
+    assert result.template_name == "cargo_power_icon"
+
+
+def test_detect_station_template_on_larger_frame_with_dynamic_scale_hint():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((1536, 2304, 3), dtype=np.uint8)
+    template = matcher.templates["station"]
+    scaled = cv2.resize(template, None, fx=1.2, fy=1.2, interpolation=cv2.INTER_CUBIC)
+    x, y = 60, 40
+    h, w = scaled.shape[:2]
+    frame[y : y + h, x : x + w] = scaled
+
+    result = matcher.find_station(frame)
+
+    assert result is not None
+    assert result.template_name == "station"
+
+
+def test_detect_base_screen_state_with_scaled_world_icon():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((1092, 1633, 3), dtype=np.uint8)
+    template = matcher.templates["world"]
+    scaled = cv2.resize(template, None, fx=0.85, fy=0.85, interpolation=cv2.INTER_CUBIC)
+    h, w = scaled.shape[:2]
+    x = frame.shape[1] - w - 24
+    y = frame.shape[0] - h - 24
+    frame[y : y + h, x : x + w] = scaled
+
+    state, detection = matcher.detect_screen_state(frame)
+
+    assert state == ScreenState.BASE
+    assert detection is not None
+    assert detection.template_name == "world"
+
+
+def test_detect_base_screen_state_uses_fallback_probe_when_strict_threshold_misses():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((932, 1392, 3), dtype=np.uint8)
+    template = matcher.templates["world"]
+    scaled = cv2.resize(template, None, fx=0.72, fy=0.72, interpolation=cv2.INTER_CUBIC)
+    h, w = scaled.shape[:2]
+    x = frame.shape[1] - w - 18
+    y = frame.shape[0] - h - 18
+    frame[y : y + h, x : x + w] = scaled
+
+    state, detection = matcher.detect_screen_state(frame)
+
+    assert state == ScreenState.BASE
+    assert detection is not None
+    assert detection.template_name == "world"
+
+
+def test_find_station_zoomed_out_uses_fallback_probe():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((932, 1392, 3), dtype=np.uint8)
+    template = matcher.templates["station_zoomed_out_icon"]
+    scaled = cv2.resize(template, None, fx=0.72, fy=0.72, interpolation=cv2.INTER_CUBIC)
+    h, w = scaled.shape[:2]
+    x, y = 32, 210
+    frame[y : y + h, x : x + w] = scaled
+
+    result = matcher.find_station_zoomed_out(frame)
+
+    assert result is not None
+    assert result.template_name == "station_zoomed_out_icon"
+
+
+def test_detect_cargo_panel_bounds_from_center_overlay():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.full((820, 1224, 3), 90, dtype=np.uint8)
+    frame[:, 280:940] = (160, 190, 120)
+    frame[:, 272:280] = 20
+    frame[:, 940:948] = 20
+
+    panel = matcher.detect_cargo_panel(frame)
+
+    assert panel is not None
+    left, top, right, bottom = panel
+    assert 275 <= left <= 290
+    assert 930 <= right <= 945
+    assert top >= 0
+    assert bottom > top
+
+
+def test_detect_cargo_refresh_button_from_blue_blob_in_panel():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.full((820, 1224, 3), 90, dtype=np.uint8)
+    frame[:, 280:940] = (160, 190, 120)
+    frame[:, 272:280] = 20
+    frame[:, 940:948] = 20
+    frame[36:84, 886:934] = (255, 140, 40)
+
+    result = matcher.find_cargo_refresh_button(frame)
+
+    assert result is not None
+    assert result.center[0] >= 886
+    assert result.center[1] >= 36

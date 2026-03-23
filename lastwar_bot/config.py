@@ -7,8 +7,12 @@ from typing import Any
 import yaml
 
 
+BASE_CLIENT_WIDTH = 1920
+BASE_CLIENT_HEIGHT = 1080
+
 
 DEFAULT_MATCHING_REGIONS: dict[str, tuple[float, float, float, float]] = {
+    "screen_state": (0.75, 0.75, 1.00, 1.00),
     "handshake": (0.72, 0.58, 0.99, 0.92),
     "excavator": (0.534, 0.809, 0.620, 0.917),
     "station": (0.00, 0.00, 0.60, 0.60),
@@ -41,6 +45,9 @@ class WindowConfig:
     title_contains: str = "Last War"
     client_width: int = 1920
     client_height: int = 1080
+    min_client_width: int = 1024
+    min_client_height: int = 728
+    resize_enabled: bool = True
     force_foreground_each_cycle: bool = True
     f11_settle_seconds: float = 1.5
     resize_settle_seconds: float = 0.5
@@ -62,6 +69,7 @@ class ThresholdConfig:
 @dataclass(slots=True)
 class MatchingConfig:
     images_dir: str = "images/templates"
+    auto_scale_templates: bool = True
     thresholds: ThresholdConfig = field(default_factory=ThresholdConfig)
     regions: dict[str, tuple[float, float, float, float]] = field(default_factory=lambda: DEFAULT_MATCHING_REGIONS.copy())
 
@@ -121,6 +129,8 @@ class OcrConfig:
     language: str = "ch"
     use_gpu: bool = False
     interval_seconds: float = 60.0
+    base_width: int = BASE_CLIENT_WIDTH
+    base_height: int = BASE_CLIENT_HEIGHT
     regions: dict[str, tuple[int, int, int, int]] = field(default_factory=lambda: DEFAULT_OCR_REGIONS.copy())
 
 
@@ -133,8 +143,20 @@ class CargoConfig:
     refresh_wait_seconds: float = 1.0
     enter_wait_seconds: float = 1.0
     enter_retry_count: int = 3
+    sample_attempts: int = 6
+    sample_interval_seconds: float = 0.4
+    empty_result_retry_rounds: int = 2
     refresh_button_x_ratio: float = 0.6404
     refresh_button_y_ratio: float = 0.0455
+
+
+@dataclass(slots=True)
+class DebugConfig:
+    enabled: bool = False
+    log_environment_once: bool = True
+    log_cycle_state: bool = False
+    log_failed_detections: bool = True
+    log_ocr_regions: bool = False
 
 
 @dataclass(slots=True)
@@ -148,6 +170,7 @@ class BotConfig:
     openclaw: OpenClawConfig = field(default_factory=OpenClawConfig)
     ocr: OcrConfig = field(default_factory=OcrConfig)
     cargo: CargoConfig = field(default_factory=CargoConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -196,4 +219,6 @@ def _merge_config(config: BotConfig, raw: dict[str, Any]) -> BotConfig:
         config.ocr = OcrConfig(regions=regions, **ocr_raw)
     if "cargo" in raw:
         config.cargo = CargoConfig(**raw["cargo"])
+    if "debug" in raw:
+        config.debug = DebugConfig(**raw["debug"])
     return config

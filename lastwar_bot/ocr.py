@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from .config import OcrConfig
+from .config import BASE_CLIENT_HEIGHT, BASE_CLIENT_WIDTH, OcrConfig
 from .models import PlayerStats
 
 
@@ -80,7 +80,8 @@ class OcrRegionReader:
             region = self.config.regions.get(field_name)
             if not region:
                 continue
-            text = self._read_field_text(engine, frame, region, field_name)
+            resolved_region = self._resolve_region(frame, region)
+            text = self._read_field_text(engine, frame, resolved_region, field_name)
             value = parse_numeric_text(text)
             if value is None:
                 continue
@@ -98,20 +99,43 @@ class OcrRegionReader:
         except Exception as exc:
             self._disabled_reason = str(exc)
             return None
-        left = icon_top_left[0] + icon_size[0] + 3
-        top = icon_top_left[1] + 2
-        right = min(frame.shape[1], left + 128)
-        bottom = min(frame.shape[0], top + 36)
-        crop = self._crop(frame, (left, top, right, bottom))
-        if crop.size == 0:
-            return None
-        crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-        text = self._ocr_best_text(engine, crop, "cargo_power")
-        return parse_numeric_text(text)
+        best_value: float | None = None
+        best_score = -1
+        for candidate_region in self._cargo_power_regions(frame, icon_top_left, icon_size):
+            crop = self._crop(frame, candidate_region)
+            if crop.size == 0:
+                continue
+            crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+            text = self._ocr_best_text(engine, crop, "cargo_power")
+            value = parse_numeric_text(text)
+            if value is None:
+                continue
+            score = len(re.sub(r"\D", "", normalize_ocr_text(text)))
+            if score > best_score:
+                best_score = score
+                best_value = value
+        return best_value
 
     @property
     def disabled_reason(self) -> str | None:
         return self._disabled_reason
+
+    def describe_regions(self, frame: np.ndarray) -> dict[str, tuple[int, int, int, int]]:
+        return {
+            field_name: self._resolve_region(frame, region)
+            for field_name, region in self.config.regions.items()
+        }
+
+    def describe_frame(self, frame: np.ndarray) -> dict[str, float | int]:
+        height, width = frame.shape[:2]
+        return {
+            "width": width,
+            "height": height,
+            "scale_x": round(width / max(1, BASE_CLIENT_WIDTH), 4),
+            "scale_y": round(height / max(1, BASE_CLIENT_HEIGHT), 4),
+            "ocr_base_width": self.config.base_width,
+            "ocr_base_height": self.config.base_height,
+        }
 
     def _get_engine(self):
         if self._engine is None:
@@ -129,6 +153,34 @@ class OcrRegionReader:
         if clipped.size == 0:
             return clipped
         return cv2.cvtColor(clipped, cv2.COLOR_BGR2RGB)
+
+    def _resolve_region(self, frame: np.ndarray, region: tuple[int, int, int, int] | tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+        frame_height, frame_width = frame.shape[:2]
+        if all(isinstance(value, float) and 0.0 <= value <= 1.0 for value in region):
+            left = int(frame_width * region[0])
+            top = int(frame_height * region[1])
+            right = int(frame_width * region[2])
+            bottom = int(frame_height * region[3])
+            return self._clip_region(frame, (left, top, right, bottom))
+
+        base_width = max(1, self.config.base_width)
+        base_height = max(1, self.config.base_height)
+        scale_x = frame_width / base_width
+        scale_y = frame_height / base_height
+        left = int(round(region[0] * scale_x))
+        top = int(round(region[1] * scale_y))
+        right = int(round(region[2] * scale_x))
+        bottom = int(round(region[3] * scale_y))
+        return self._clip_region(frame, (left, top, right, bottom))
+
+    def _clip_region(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        frame_height, frame_width = frame.shape[:2]
+        left, top, right, bottom = region
+        left = max(0, min(frame_width - 1, left))
+        top = max(0, min(frame_height - 1, top))
+        right = max(left + 1, min(frame_width, right))
+        bottom = max(top + 1, min(frame_height, bottom))
+        return (left, top, right, bottom)
 
     def _read_field_text(self, engine, frame: np.ndarray, region: tuple[int, int, int, int], field_name: str) -> str:
         best_text = ""
@@ -149,15 +201,46 @@ class OcrRegionReader:
         if field_name == "diamonds":
             left, top, right, bottom = region
             pad_left, pad_top, pad_right, pad_bottom = DIAMONDS_CONTEXT_PADDING
+            scale_x = frame.shape[1] / max(1, self.config.base_width)
+            scale_y = frame.shape[0] / max(1, self.config.base_height)
             candidates.append(
-                (
-                    max(0, left - pad_left),
-                    max(0, top - pad_top),
-                    min(frame.shape[1], right + pad_right),
-                    min(frame.shape[0], bottom + pad_bottom),
+                self._clip_region(
+                    frame,
+                    (
+                        int(round(left - pad_left * scale_x)),
+                        int(round(top - pad_top * scale_y)),
+                        int(round(right + pad_right * scale_x)),
+                        int(round(bottom + pad_bottom * scale_y)),
+                    ),
                 )
             )
         return candidates
+
+    def _cargo_power_regions(
+        self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]
+    ) -> list[tuple[int, int, int, int]]:
+        icon_left, icon_top = icon_top_left
+        icon_width, icon_height = icon_size
+        gap = max(3, int(round(icon_width * 0.12)))
+        width_options = (
+            max(96, int(round(icon_width * 4.2))),
+            max(118, int(round(icon_width * 5.0))),
+            max(140, int(round(icon_width * 5.8))),
+        )
+        height_options = (
+            max(28, int(round(icon_height * 1.15))),
+            max(36, int(round(icon_height * 1.45))),
+            max(44, int(round(icon_height * 1.75))),
+        )
+        top_offsets = (0, -max(2, icon_height // 8), max(2, icon_height // 8))
+        regions: list[tuple[int, int, int, int]] = []
+        for width in width_options:
+            for height in height_options:
+                for top_offset in top_offsets:
+                    left = icon_left + icon_width + gap
+                    top = icon_top + top_offset
+                    regions.append(self._clip_region(frame, (left, top, left + width, top + height)))
+        return regions
 
     def _candidate_text_score(self, text: str, field_name: str) -> float:
         if not text:

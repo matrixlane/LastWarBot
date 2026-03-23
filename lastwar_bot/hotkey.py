@@ -12,12 +12,14 @@ class HotkeyManager:
         window_manager: WindowManager,
         allowed_pids_getter: Callable[[], set[int]],
         on_toggle: Callable[[], None],
+        on_auto_click: Callable[[], None] | None = None,
         on_center_station: Callable[[], None] | None = None,
         on_skip_truck: Callable[[], None] | None = None,
     ) -> None:
         self.window_manager = window_manager
         self.allowed_pids_getter = allowed_pids_getter
         self.on_toggle = on_toggle
+        self.on_auto_click = on_auto_click
         self.on_center_station = on_center_station
         self.on_skip_truck = on_skip_truck
         self._keyboard = None
@@ -30,6 +32,8 @@ class HotkeyManager:
         self._keyboard = keyboard
 
         self._keyboard.on_press_key("f12", lambda _event: self._dispatch(self.on_toggle))
+        if self.on_auto_click is not None:
+            self._keyboard.on_press_key("f2", lambda _event: self._dispatch(self.on_auto_click, require_focus=False))
         if self.on_center_station is not None:
             self._keyboard.on_press_key("f5", lambda _event: self._dispatch(self.on_center_station))
         if self.on_skip_truck is not None:

@@ -6,6 +6,9 @@ window:
   title_contains: "Last War"
   client_width: 1920
   client_height: 1080
+  min_client_width: 1024
+  min_client_height: 728
+  resize_enabled: false
   force_foreground_each_cycle: true
   f11_settle_seconds: 1.5
   resize_settle_seconds: 0.5
@@ -91,12 +94,22 @@ openclaw:
 
 # 4 货车
 cargo:
-  min_target_power_m: 0.0
+  min_target_power_m: 15.0
   ur_fragment_alert_count: 2
-  max_refresh_attempts: 99
-  inspection_wait_seconds: 0.6
-  refresh_wait_seconds: 1.0
-  enter_wait_seconds: 1.0
-  enter_retry_count: 3
+  max_refresh_attempts: 999
+  inspection_wait_seconds: 0.2
+  refresh_wait_seconds: 2
+  enter_wait_seconds: 2
+  enter_retry_count: 2
+  sample_attempts: 2
+  sample_interval_seconds: 0.2
+  empty_result_retry_rounds: 2
   refresh_button_x_ratio: 0.6404
   refresh_button_y_ratio: 0.0455
+
+debug:
+  enabled: true
+  log_environment_once: true
+  log_cycle_state: false
+  log_failed_detections: true
+  log_ocr_regions: false
