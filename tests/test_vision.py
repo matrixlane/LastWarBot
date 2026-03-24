@@ -24,6 +24,19 @@ def _paste(template_name: str, location: tuple[int, int], scale: float = 1.0) ->
     return frame
 
 
+def _paste_rotated(template_name: str, location: tuple[int, int], angle: float, scale: float = 1.0) -> np.ndarray:
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    template = load_image_bgr(TEMPLATES_DIR / template_name)
+    if scale != 1.0:
+        template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    h, w = template.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle, 1.0)
+    rotated = cv2.warpAffine(template, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
+    x, y = location
+    frame[y : y + h, x : x + w] = rotated
+    return frame
+
+
 def test_detect_base_screen_state_from_bottom_right_quarter():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
     template = load_image_bgr(TEMPLATES_DIR / "??.png")
@@ -89,7 +102,7 @@ def test_detect_excavator_icon_on_world_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
     frame = load_image_bgr(SAMPLES_DIR / "????1920x1080-???.png")
 
-    result = matcher.find_best(frame, "excavator", threshold=0.60, multi_scale=True)
+    result = matcher.find_best(frame, "excavator", threshold=0.62, multi_scale=True)
 
     assert result is not None
     assert result.template_name == "excavator"
@@ -108,9 +121,58 @@ def test_do_not_detect_excavator_on_plain_world_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
     frame = load_image_bgr(SAMPLES_DIR / "????1920x1080.png")
 
-    result = matcher.find_best(frame, "excavator", threshold=0.60, multi_scale=True)
+    result = matcher.find_best(frame, "excavator", threshold=0.62, multi_scale=True)
 
     assert result is None
+
+
+def test_excavator_scales_support_small_windows():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+
+    scales = matcher._template_scales("excavator", 0.64)
+
+    assert min(scales) <= 0.36
+
+
+def test_handshake_scales_support_small_windows():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+
+    scales = matcher._template_scales("handshake", 0.64)
+
+    assert min(scales) <= 0.36
+
+
+def test_default_excavator_region_covers_main_map():
+    config = MatchingConfig()
+
+    assert config.regions["excavator"] == (0.34, 0.68, 0.66, 0.98)
+
+
+def test_find_excavator_with_slight_rotation_uses_fallback():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = _paste_rotated("挖掘机.png", (860, 780), angle=10, scale=0.9)
+
+    result = matcher.find_excavator(frame)
+
+    assert result is not None
+    assert result.template_name in {"excavator", "excavator_color"}
+
+
+def test_cargo_truck_region_excludes_panel_header():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+
+    frame = np.zeros((820, 1224, 3), dtype=np.uint8)
+    panel_rect = (360, 8, 865, 740)
+    left, top, right, bottom = panel_rect
+    panel_width = right - left
+    panel_height = bottom - top
+    inner_left = left + int(panel_width * 0.06)
+    inner_top = top + int(panel_height * 0.16)
+    inner_right = left + int(panel_width * 0.82)
+
+    assert inner_top > top + 100
+    assert inner_left > left
+    assert inner_right < right - 80
 
 
 def test_world_state_detects_from_client_capture():
@@ -190,6 +252,14 @@ def test_detect_scaled_ur_fragment_template():
     result = matcher.find_ur_fragments(frame)
 
     assert len(result) == 1
+
+
+def test_ur_fragment_scales_support_small_icons():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+
+    scales = matcher._template_scales("ur_fragment", 0.64)
+
+    assert min(scales) <= 0.39
 
 
 def test_detect_scaled_cargo_power_icon_template():

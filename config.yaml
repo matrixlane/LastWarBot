@@ -19,7 +19,7 @@ matching:
     base: 0.68
     world: 0.68
     handshake: 0.78
-    excavator: 0.56
+    excavator: 0.62
     station: 0.68
     station_zoomed_out: 0.78
     ur_fragment: 0.86
@@ -27,7 +27,7 @@ matching:
     cargo_power_icon: 0.78
   regions:
     handshake: [0.72, 0.58, 0.99, 0.92]
-    excavator: [0.534, 0.809, 0.620, 0.917]
+    excavator: [0.34, 0.68, 0.66, 0.98]
     station: [0.00, 0.00, 0.60, 0.60]
     station_zoomed_out_icon: [0.00, 0.00, 0.35, 0.35]
     station_zoomed_out_full: [0.00, 0.00, 0.40, 0.40]
@@ -45,10 +45,10 @@ ocr:
   regions:
     level: [8, 38, 78, 94]
     stamina: [0, 84, 92, 134]
-    food: [76, 0, 206, 46]
-    iron: [214, 0, 334, 46]
-    gold: [336, 0, 456, 46]
-    power: [84, 48, 266, 108]
+    food: [72, 0, 218, 50]
+    iron: [208, 0, 346, 50]
+    gold: [330, 0, 470, 50]
+    power: [80, 44, 292, 112]
     diamonds: [1788, 0, 1918, 56]
 
 # 2 同盟帮助
@@ -67,7 +67,7 @@ event_log:
   directory: "logs/events"
 
 openclaw:
-  enabled: false
+  enabled: true
   startup_enabled: false
   excavator_enabled: true
   mode: "cli"
@@ -96,13 +96,17 @@ openclaw:
 cargo:
   min_target_power_m: 15.0
   ur_fragment_alert_count: 2
-  max_refresh_attempts: 999
-  inspection_wait_seconds: 0.2
-  refresh_wait_seconds: 2
+  auto_share_enabled: true
+  max_refresh_attempts: 9999
+  inspection_wait_seconds: 0.3
+  ur_confirm_interval_seconds: 0.3
+  share_wait_seconds: 0.5
+  share_confirm_wait_seconds: 0.5
+  refresh_wait_seconds: 1.2
   enter_wait_seconds: 2
   enter_retry_count: 2
   sample_attempts: 2
-  sample_interval_seconds: 0.2
+  sample_interval_seconds: 0.3
   empty_result_retry_rounds: 2
   refresh_button_x_ratio: 0.6404
   refresh_button_y_ratio: 0.0455

@@ -9,30 +9,48 @@ from .config import BASE_CLIENT_HEIGHT, BASE_CLIENT_WIDTH, MatchingConfig
 from .models import DetectionResult, FrameAnalysis, ScreenState, TruckDetection
 
 
-ICON_SCALES = (0.75, 0.85, 1.0, 1.15, 1.3)
+ICON_SCALES = (0.55, 0.65, 0.75, 0.85, 1.0, 1.15, 1.3)
+EXCAVATOR_SCALES = (0.50, 0.60, 0.70, 0.80, 0.90, 1.0, 1.15, 1.3)
 STATE_SCALES = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
 STATION_SCALES = (0.45, 0.55, 0.65, 0.75, 0.85, 1.0, 1.15, 1.3)
 STATION_ZOOMED_OUT_SCALES = (0.85, 0.95, 1.0, 1.05, 1.15)
 REFRESH_BUTTON_SCALES = (0.9, 1.0, 1.1)
-UR_FRAGMENT_SCALES = (0.8, 0.9, 1.0, 1.1, 1.2)
+UR_FRAGMENT_SCALES = (0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3)
 CARGO_POWER_ICON_SCALES = (0.85, 0.95, 1.0, 1.05, 1.15)
 SCREEN_STATE_FALLBACK_THRESHOLD = 0.40
 SCREEN_STATE_FALLBACK_MARGIN = 0.02
 STATION_ZOOMED_OUT_FALLBACK_THRESHOLD = 0.50
 REFRESH_BUTTON_FALLBACK_THRESHOLD = 0.45
-UR_FRAGMENT_FALLBACK_THRESHOLD = 0.76
+UR_FRAGMENT_FALLBACK_THRESHOLD = 0.68
+EXCAVATOR_PROBE_THRESHOLD = 0.52
 TRUCK_SEARCH_REGION = (0.20, 0.10, 0.72, 0.86)
-UR_FRAGMENT_PANEL_REGION = (0.06, 0.72, 0.78, 0.98)
+UR_FRAGMENT_PANEL_REGION = (0.04, 0.70, 0.94, 0.985)
 CARGO_PANEL_LEFT_SEARCH = (0.18, 0.46)
 CARGO_PANEL_RIGHT_SEARCH = (0.54, 0.82)
 CARGO_PANEL_INSET_X = 6
 CARGO_PANEL_TOP_INSET = 8
 CARGO_PANEL_BOTTOM_INSET = 80
+CARGO_TRUCK_PANEL_REGION = (0.06, 0.16, 0.82, 0.94)
 CARGO_REFRESH_BLUE_LOWER = (85, 80, 120)
 CARGO_REFRESH_BLUE_UPPER = (125, 255, 255)
 CARGO_REFRESH_BLUE_MIN_AREA = 300
 CARGO_REFRESH_SEARCH_WIDTH = 180
 CARGO_REFRESH_SEARCH_HEIGHT = 180
+SHARE_BUTTON_BLUE_LOWER = (85, 80, 120)
+SHARE_BUTTON_BLUE_UPPER = (125, 255, 255)
+SHARE_BUTTON_MIN_AREA = 700
+SHARE_DIALOG_REGION = (0.31, 0.23, 0.68, 0.80)
+SHARE_DIALOG_LIST_REGION = (0.04, 0.13, 0.96, 0.96)
+SHARE_CONFIRM_DIALOG_REGION = (0.08, 0.13, 0.92, 0.82)
+SHARE_CONFIRM_BUTTON_REGION = (0.50, 0.58, 0.93, 0.94)
+EXCAVATOR_YELLOW_LOWER = (12, 80, 130)
+EXCAVATOR_YELLOW_UPPER = (45, 255, 255)
+EXCAVATOR_ORANGE_LOWER = (5, 90, 90)
+EXCAVATOR_ORANGE_UPPER = (30, 255, 255)
+EXCAVATOR_COLOR_MIN_AREA = 900
+EXCAVATOR_MIN_SIZE = 26
+EXCAVATOR_MAX_SIZE = 160
+EXCAVATOR_PROBE_DISTANCE_FACTOR = 0.45
 TRUCK_COLOR_RULES = {
     "purple": {
         "lower": (135, 40, 60),
@@ -99,13 +117,7 @@ class TemplateMatcher:
             roi=self.config.regions["handshake"],
             multi_scale=True,
         )
-        excavator = self._find_best_icon(
-            frame_gray,
-            "excavator",
-            self.config.thresholds.excavator,
-            roi=self.config.regions["excavator"],
-            multi_scale=True,
-        )
+        excavator = self.find_excavator(frame)
         cargo_trucks = self.detect_cargo_trucks(frame) if detect_cargo else []
         return FrameAnalysis(
             screen_state=state,
@@ -162,17 +174,28 @@ class TemplateMatcher:
             return ScreenState.WORLD, base_probe
         return ScreenState.OTHER, None
 
-    def detect_cargo_trucks(self, frame: np.ndarray) -> list[TruckDetection]:
+    def detect_cargo_trucks(self, frame: np.ndarray, relax_level: int = 0) -> list[TruckDetection]:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         panel_rect = self.detect_cargo_panel(frame)
         if panel_rect is not None:
             left, top, right, bottom = panel_rect
+            panel_width = right - left
+            panel_height = bottom - top
+            inner_left = left + int(panel_width * CARGO_TRUCK_PANEL_REGION[0])
+            inner_top = top + int(panel_height * CARGO_TRUCK_PANEL_REGION[1])
+            inner_right = left + int(panel_width * CARGO_TRUCK_PANEL_REGION[2])
+            inner_bottom = top + int(panel_height * CARGO_TRUCK_PANEL_REGION[3])
+            left, top, right, bottom = inner_left, inner_top, inner_right, inner_bottom
             roi_hsv = hsv[top:bottom, left:right]
             roi_origin = (left, top)
         else:
             roi_hsv, roi_origin = self._crop_color_normalized(hsv, TRUCK_SEARCH_REGION)
         frame_scale = self._frame_scale(frame)
         detections: list[TruckDetection] = []
+        area_scale = max(0.55, 1.0 - 0.15 * relax_level)
+        min_size_scale = max(0.75, 1.0 - 0.08 * relax_level)
+        max_size_scale = 1.0 + 0.12 * relax_level
+        min_aspect = max(1.0, 1.30 - 0.12 * relax_level)
         for truck_type, rule in TRUCK_COLOR_RULES.items():
             mask = cv2.inRange(
                 roi_hsv,
@@ -186,18 +209,18 @@ class TemplateMatcher:
                 x, y, w, h = cv2.boundingRect(contour)
                 area = float(cv2.contourArea(contour))
                 aspect = h / max(w, 1)
-                min_area = rule["min_area"] * frame_scale * frame_scale
-                min_w = max(1, int(round(rule["min_w"] * frame_scale)))
-                max_w = max(min_w, int(round(rule["max_w"] * frame_scale)))
-                min_h = max(1, int(round(rule["min_h"] * frame_scale)))
-                max_h = max(min_h, int(round(rule["max_h"] * frame_scale)))
+                min_area = rule["min_area"] * frame_scale * frame_scale * area_scale
+                min_w = max(1, int(round(rule["min_w"] * frame_scale * min_size_scale)))
+                max_w = max(min_w, int(round(rule["max_w"] * frame_scale * max_size_scale)))
+                min_h = max(1, int(round(rule["min_h"] * frame_scale * min_size_scale)))
+                max_h = max(min_h, int(round(rule["max_h"] * frame_scale * max_size_scale)))
                 if area < min_area:
                     continue
                 if w < min_w or w > max_w:
                     continue
                 if h < min_h or h > max_h:
                     continue
-                if aspect < rule["min_aspect"]:
+                if aspect < min_aspect:
                     continue
                 abs_x = x + roi_origin[0]
                 abs_y = y + roi_origin[1]
@@ -261,6 +284,59 @@ class TemplateMatcher:
             return best_probe
         return None
 
+    def find_excavator(self, frame: np.ndarray) -> DetectionResult | None:
+        frame_gray = self._to_gray(frame)
+        roi = self.config.regions["excavator"]
+        threshold = self.config.thresholds.excavator
+        direct = self._find_best_in_gray(
+            frame_gray,
+            "excavator",
+            threshold,
+            roi=roi,
+            multi_scale=True,
+        )
+        if direct is not None:
+            return direct
+
+        edge_threshold = max(0.52, threshold - 0.06)
+        edge = self._find_best_in_edge(
+            self._to_edge(frame_gray),
+            "excavator",
+            edge_threshold,
+            roi=roi,
+            multi_scale=True,
+        )
+        if edge is not None:
+            return edge
+
+        probe = self._pick_stronger_detection(
+            self._find_best_in_gray(frame_gray, "excavator", -1.0, roi=roi, multi_scale=True),
+            self._find_best_in_edge(self._to_edge(frame_gray), "excavator", -1.0, roi=roi, multi_scale=True),
+        )
+        color = self._find_excavator_color_marker(frame, roi)
+        if color is None:
+            if probe is not None and probe.confidence >= EXCAVATOR_PROBE_THRESHOLD:
+                return probe
+            return None
+
+        if probe is None:
+            return None
+
+        distance = float(np.hypot(probe.center[0] - color.center[0], probe.center[1] - color.center[1]))
+        max_distance = max(18.0, max(color.size) * EXCAVATOR_PROBE_DISTANCE_FACTOR)
+        if distance <= max_distance:
+            return DetectionResult(
+                template_name="excavator",
+                confidence=max(probe.confidence, color.confidence),
+                center=color.center,
+                top_left=color.top_left,
+                size=color.size,
+                roi=color.roi,
+        )
+        if probe.confidence >= EXCAVATOR_PROBE_THRESHOLD:
+            return probe
+        return None
+
     def find_ur_fragments(self, frame: np.ndarray) -> list[DetectionResult]:
         frame_gray = self._to_gray(frame)
         roi = self.config.regions["ur_fragment"]
@@ -279,7 +355,7 @@ class TemplateMatcher:
             self.config.thresholds.ur_fragment,
             roi=roi,
             multi_scale=True,
-            dedupe_distance=18,
+            dedupe_distance=12,
         )
         if len(results) >= 2:
             return results
@@ -294,16 +370,13 @@ class TemplateMatcher:
             relaxed_threshold,
             roi=roi,
             multi_scale=True,
-            dedupe_distance=18,
+            dedupe_distance=12,
         )
         return relaxed_results if len(relaxed_results) > len(results) else results
 
     def find_cargo_refresh_button(self, frame: np.ndarray) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
         panel_rect = self.detect_cargo_panel(frame)
-        blue_result = self._find_cargo_refresh_button_blue(frame, panel_rect)
-        if blue_result is not None:
-            return blue_result
         roi = self.config.regions["cargo_refresh_button"]
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
@@ -325,7 +398,115 @@ class TemplateMatcher:
         )
         if probe is not None and probe.confidence >= REFRESH_BUTTON_FALLBACK_THRESHOLD:
             return probe
+        blue_result = self._find_cargo_refresh_button_blue(frame, panel_rect)
+        if blue_result is not None:
+            return blue_result
         return None
+
+    def find_cargo_share_button(self, frame: np.ndarray) -> DetectionResult | None:
+        panel_rect = self.detect_cargo_panel(frame)
+        if panel_rect is None:
+            return None
+        left, top, right, bottom = panel_rect
+        panel_width = max(1, right - left)
+        panel_height = max(1, bottom - top)
+        search_rect = (
+            left + int(panel_width * 0.50),
+            top + int(panel_height * 0.70),
+            left + int(panel_width * 0.90),
+            top + int(panel_height * 0.98),
+        )
+        return self._find_blue_button_in_rect(frame, search_rect, "cargo_share_button", SHARE_BUTTON_MIN_AREA)
+
+    def infer_share_dialog_rect(self, frame: np.ndarray) -> tuple[int, int, int, int]:
+        height, width = frame.shape[:2]
+        return (
+            int(width * SHARE_DIALOG_REGION[0]),
+            int(height * SHARE_DIALOG_REGION[1]),
+            int(width * SHARE_DIALOG_REGION[2]),
+            int(height * SHARE_DIALOG_REGION[3]),
+        )
+
+    def infer_share_list_region(self, frame: np.ndarray) -> tuple[int, int, int, int]:
+        dialog = self.infer_share_dialog_rect(frame)
+        return self._rect_within(dialog, SHARE_DIALOG_LIST_REGION)
+
+    def infer_share_confirm_dialog_rect(self, frame: np.ndarray) -> tuple[int, int, int, int]:
+        dialog = self.infer_share_dialog_rect(frame)
+        return self._rect_within(dialog, SHARE_CONFIRM_DIALOG_REGION)
+
+    def find_share_confirm_button(self, frame: np.ndarray) -> DetectionResult | None:
+        dialog_rect = self.infer_share_confirm_dialog_rect(frame)
+        search_rect = self._rect_within(dialog_rect, SHARE_CONFIRM_BUTTON_REGION)
+        return self._find_blue_button_in_rect(frame, search_rect, "share_confirm_button", SHARE_BUTTON_MIN_AREA)
+
+    def _find_excavator_color_marker(
+        self,
+        frame: np.ndarray,
+        roi: tuple[float, float, float, float],
+    ) -> DetectionResult | None:
+        roi_bgr, roi_origin = self._crop_color_normalized(frame, roi)
+        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+        yellow_mask = cv2.inRange(
+            hsv,
+            np.array(EXCAVATOR_YELLOW_LOWER, dtype=np.uint8),
+            np.array(EXCAVATOR_YELLOW_UPPER, dtype=np.uint8),
+        )
+        yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, np.ones((7, 7), dtype=np.uint8))
+        orange_mask = cv2.inRange(
+            hsv,
+            np.array(EXCAVATOR_ORANGE_LOWER, dtype=np.uint8),
+            np.array(EXCAVATOR_ORANGE_UPPER, dtype=np.uint8),
+        )
+        contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        frame_scale = self._frame_scale(frame)
+        min_area = EXCAVATOR_COLOR_MIN_AREA * frame_scale * frame_scale
+        best: DetectionResult | None = None
+        best_score = -1.0
+        roi_height, roi_width = roi_bgr.shape[:2]
+        target_x = roi_origin[0] + roi_width / 2.0
+        target_y = roi_origin[1] + roi_height * 0.78
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            if area < min_area:
+                continue
+            min_size = int(round(EXCAVATOR_MIN_SIZE * frame_scale))
+            max_size = int(round(EXCAVATOR_MAX_SIZE * frame_scale))
+            if w < min_size or h < min_size:
+                continue
+            if w > max_size or h > max_size:
+                continue
+            aspect = w / max(h, 1)
+            if aspect < 0.6 or aspect > 1.6:
+                continue
+            orange_pixels = int(cv2.countNonZero(orange_mask[y : y + h, x : x + w]))
+            if orange_pixels < max(80, int(60 * frame_scale * frame_scale)):
+                continue
+            abs_x = x + roi_origin[0]
+            abs_y = y + roi_origin[1]
+            center = (abs_x + w // 2, abs_y + h // 2)
+            distance_penalty = abs(center[0] - target_x) * 0.06 + abs(center[1] - target_y) * 0.08
+            score = area + orange_pixels * 2.5 - distance_penalty
+            if score <= best_score:
+                continue
+            best_score = score
+            confidence = min(0.95, 0.35 + area / 6000.0 + orange_pixels / 2500.0)
+            best = DetectionResult(
+                template_name="excavator_color",
+                confidence=confidence,
+                center=center,
+                top_left=(abs_x, abs_y),
+                size=(w, h),
+                roi=(
+                    roi_origin[0],
+                    roi_origin[1],
+                    roi_origin[0] + roi_width,
+                    roi_origin[1] + roi_height,
+                ),
+            )
+        return best
 
     def _find_cargo_refresh_button_blue(
         self, frame: np.ndarray, panel_rect: tuple[int, int, int, int] | None
@@ -380,6 +561,59 @@ class TemplateMatcher:
             )
         return best
 
+    def _find_blue_button_in_rect(
+        self,
+        frame: np.ndarray,
+        rect: tuple[int, int, int, int],
+        template_name: str,
+        min_area: int,
+    ) -> DetectionResult | None:
+        left, top, right, bottom = rect
+        frame_height, frame_width = frame.shape[:2]
+        left = max(0, min(frame_width - 1, left))
+        top = max(0, min(frame_height - 1, top))
+        right = max(left + 1, min(frame_width, right))
+        bottom = max(top + 1, min(frame_height, bottom))
+        roi = frame[top:bottom, left:right]
+        if roi.size == 0:
+            return None
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(
+            hsv,
+            np.array(SHARE_BUTTON_BLUE_LOWER, dtype=np.uint8),
+            np.array(SHARE_BUTTON_BLUE_UPPER, dtype=np.uint8),
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), dtype=np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best: DetectionResult | None = None
+        best_score = -1.0
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            if area < min_area:
+                continue
+            if w < 30 or h < 24:
+                continue
+            if w > 280 or h > 120:
+                continue
+            abs_x = left + x
+            abs_y = top + y
+            center = (abs_x + w // 2, abs_y + h // 2)
+            score = area - abs(center[0] - (left + right) / 2) * 0.08
+            if score <= best_score:
+                continue
+            best_score = score
+            best = DetectionResult(
+                template_name=template_name,
+                confidence=min(0.99, area / 5000.0),
+                center=center,
+                top_left=(abs_x, abs_y),
+                size=(w, h),
+                roi=(left, top, right, bottom),
+            )
+        return best
+
     def detect_cargo_panel(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
         frame_gray = self._to_gray(frame)
         height, width = frame_gray.shape[:2]
@@ -405,14 +639,32 @@ class TemplateMatcher:
         bottom = max(top + 1, height - CARGO_PANEL_BOTTOM_INSET)
         return (left, top, right, bottom)
 
-    def find_cargo_power_icon(self, frame: np.ndarray) -> DetectionResult | None:
-        return self._find_best_in_gray(
-            self._to_gray(frame),
+    def find_cargo_power_icon(
+        self, frame: np.ndarray, panel_rect: tuple[int, int, int, int] | None = None
+    ) -> DetectionResult | None:
+        frame_gray = self._to_gray(frame)
+        roi = self.config.regions["cargo_power_icon"]
+        if panel_rect is not None:
+            roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
+        result = self._find_best_in_gray(
+            frame_gray,
             "cargo_power_icon",
             self.config.thresholds.cargo_power_icon,
-            roi=self.config.regions["cargo_power_icon"],
+            roi=roi,
             multi_scale=True,
         )
+        if result is not None:
+            return result
+        probe = self._find_best_in_gray(
+            frame_gray,
+            "cargo_power_icon",
+            -1.0,
+            roi=roi,
+            multi_scale=True,
+        )
+        if probe is not None and probe.confidence >= 0.62:
+            return probe
+        return None
 
     def find_best(
         self,
@@ -443,7 +695,7 @@ class TemplateMatcher:
             return direct
         if template_name != "excavator":
             return None
-        edge_threshold = max(0.42, threshold - 0.12)
+        edge_threshold = max(0.52, threshold - 0.06)
         return self._find_best_in_edge(
             self._to_edge(frame_gray),
             template_name,
@@ -632,6 +884,18 @@ class TemplateMatcher:
             max(0.0, min(1.0, abs_bottom / max(1, frame_height))),
         )
 
+    @staticmethod
+    def _rect_within(rect: tuple[int, int, int, int], roi: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+        left, top, right, bottom = rect
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        return (
+            left + int(width * roi[0]),
+            top + int(height * roi[1]),
+            left + int(width * roi[2]),
+            top + int(height * roi[3]),
+        )
+
     def describe_frame(self, frame: np.ndarray) -> dict[str, float | int]:
         height, width = frame.shape[:2]
         return {
@@ -649,8 +913,10 @@ class TemplateMatcher:
             scales = STATION_SCALES
         elif template_name in {"station_zoomed_out_icon", "station_zoomed_out_full"}:
             scales = STATION_ZOOMED_OUT_SCALES
-        elif template_name in {"handshake", "excavator"}:
+        elif template_name == "handshake":
             scales = ICON_SCALES
+        elif template_name == "excavator":
+            scales = EXCAVATOR_SCALES
         elif template_name == "cargo_refresh_button":
             scales = REFRESH_BUTTON_SCALES
         elif template_name == "ur_fragment":

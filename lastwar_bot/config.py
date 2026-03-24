@@ -14,7 +14,7 @@ BASE_CLIENT_HEIGHT = 1080
 DEFAULT_MATCHING_REGIONS: dict[str, tuple[float, float, float, float]] = {
     "screen_state": (0.75, 0.75, 1.00, 1.00),
     "handshake": (0.72, 0.58, 0.99, 0.92),
-    "excavator": (0.534, 0.809, 0.620, 0.917),
+    "excavator": (0.34, 0.68, 0.66, 0.98),
     "station": (0.00, 0.00, 0.60, 0.60),
     "station_zoomed_out_icon": (0.00, 0.00, 0.35, 0.35),
     "station_zoomed_out_full": (0.00, 0.00, 0.40, 0.40),
@@ -26,10 +26,10 @@ DEFAULT_MATCHING_REGIONS: dict[str, tuple[float, float, float, float]] = {
 DEFAULT_OCR_REGIONS: dict[str, tuple[int, int, int, int]] = {
     "level": (8, 38, 78, 94),
     "stamina": (0, 84, 92, 134),
-    "food": (76, 0, 206, 46),
-    "iron": (214, 0, 334, 46),
-    "gold": (336, 0, 456, 46),
-    "power": (84, 48, 266, 108),
+    "food": (72, 0, 218, 50),
+    "iron": (208, 0, 346, 50),
+    "gold": (330, 0, 470, 50),
+    "power": (80, 44, 292, 112),
     "diamonds": (1788, 0, 1918, 56),
 }
 
@@ -58,7 +58,7 @@ class ThresholdConfig:
     base: float = 0.68
     world: float = 0.68
     handshake: float = 0.78
-    excavator: float = 0.56
+    excavator: float = 0.62
     station: float = 0.68
     station_zoomed_out: float = 0.78
     ur_fragment: float = 0.86
@@ -138,8 +138,12 @@ class OcrConfig:
 class CargoConfig:
     min_target_power_m: float = 0.0
     ur_fragment_alert_count: int = 2
+    auto_share_enabled: bool = False
     max_refresh_attempts: int = 4
     inspection_wait_seconds: float = 0.6
+    ur_confirm_interval_seconds: float = 0.3
+    share_wait_seconds: float = 0.4
+    share_confirm_wait_seconds: float = 0.4
     refresh_wait_seconds: float = 1.0
     enter_wait_seconds: float = 1.0
     enter_retry_count: int = 3

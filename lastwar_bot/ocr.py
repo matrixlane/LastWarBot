@@ -21,13 +21,22 @@ SUFFIX_MULTIPLIERS = {
 FIELD_FOCUS = {
     "level": (0.18, 0.10, 0.78, 0.92),
     "stamina": (0.35, 0.00, 0.90, 1.00),
-    "power": (0.32, 0.35, 1.00, 1.00),
+    "food": (0.08, 0.00, 1.00, 1.00),
+    "iron": (0.08, 0.00, 1.00, 1.00),
+    "gold": (0.08, 0.00, 1.00, 1.00),
+    "power": (0.10, 0.12, 1.00, 1.00),
     "diamonds": (0.45, 0.40, 1.00, 1.00),
 }
 
 
 INTEGER_FIELDS = {"level", "stamina", "diamonds"}
+RESOURCE_FIELDS = {"food", "iron", "gold"}
 DIAMONDS_CONTEXT_PADDING = (72, 0, 0, 36)
+RESOURCE_ICON_HSV = {
+    "food": ((5, 50, 80), (30, 255, 255)),
+    "iron": ((95, 40, 70), (125, 255, 255)),
+    "gold": ((15, 90, 120), (45, 255, 255)),
+}
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -59,6 +68,10 @@ def parse_numeric_text(text: str) -> float | None:
     if suffix:
         number *= SUFFIX_MULTIPLIERS[suffix]
     return number
+
+
+def normalize_dialog_text(text: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
 
 
 @dataclass(slots=True)
@@ -116,6 +129,53 @@ class OcrRegionReader:
                 best_value = value
         return best_value
 
+    def extract_cargo_power_from_panel(self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]) -> float | None:
+        if not self.config.enabled or self._disabled_reason:
+            return None
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return None
+
+        left, top, right, bottom = panel_rect
+        panel_width = max(1, right - left)
+        panel_height = max(1, bottom - top)
+        candidates = [
+            (
+                left + int(panel_width * 0.16),
+                top + int(panel_height * 0.69),
+                left + int(panel_width * 0.42),
+                top + int(panel_height * 0.84),
+            ),
+            (
+                left + int(panel_width * 0.14),
+                top + int(panel_height * 0.66),
+                left + int(panel_width * 0.46),
+                top + int(panel_height * 0.86),
+            ),
+        ]
+
+        best_value: float | None = None
+        best_score = -1
+        for region in candidates:
+            crop = self._crop(frame, self._clip_region(frame, region))
+            if crop.size == 0:
+                continue
+            crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
+            text = self._ocr_best_text(engine, crop, "cargo_power")
+            value = parse_numeric_text(text)
+            if value is None:
+                continue
+            normalized = normalize_ocr_text(text)
+            score = len(re.sub(r"\D", "", normalized))
+            if any(unit in normalized for unit in ("K", "M", "B")):
+                score += 3
+            if score > best_score:
+                best_score = score
+                best_value = value
+        return best_value
+
     @property
     def disabled_reason(self) -> str | None:
         return self._disabled_reason
@@ -137,9 +197,49 @@ class OcrRegionReader:
             "ocr_base_height": self.config.base_height,
         }
 
+    def find_text_center_in_region(
+        self,
+        frame: np.ndarray,
+        region: tuple[int, int, int, int],
+        required_tokens: tuple[str, ...],
+    ) -> tuple[int, int] | None:
+        if not self.config.enabled or self._disabled_reason:
+            return None
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return None
+        crop = self._crop(frame, region)
+        if crop.size == 0:
+            return None
+        scale = 2
+        enlarged = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        try:
+            result = engine.ocr(enlarged, cls=False)
+        except Exception:
+            return None
+        normalized_tokens = tuple(normalize_dialog_text(token) for token in required_tokens)
+        best_confidence = -1.0
+        best_center: tuple[int, int] | None = None
+        for text, confidence, center in self._extract_text_boxes(result, scale=scale):
+            normalized = normalize_dialog_text(text)
+            if not normalized:
+                continue
+            if not all(token in normalized for token in normalized_tokens):
+                continue
+            if confidence <= best_confidence:
+                continue
+            best_confidence = confidence
+            best_center = (region[0] + center[0], region[1] + center[1])
+        return best_center
+
     def _get_engine(self):
         if self._engine is None:
             os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+            os.environ.setdefault("FLAGS_use_mkldnn", "0")
+            os.environ.setdefault("FLAGS_enable_pir_api", "0")
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
             try:
                 from paddleocr import PaddleOCR
             except ImportError as exc:
@@ -198,6 +298,10 @@ class OcrRegionReader:
         self, frame: np.ndarray, region: tuple[int, int, int, int], field_name: str
     ) -> list[tuple[int, int, int, int]]:
         candidates = [region]
+        if field_name in RESOURCE_FIELDS:
+            anchored = self._resource_anchor_region(frame, region, field_name)
+            if anchored is not None and anchored not in candidates:
+                candidates.insert(0, anchored)
         if field_name == "diamonds":
             left, top, right, bottom = region
             pad_left, pad_top, pad_right, pad_bottom = DIAMONDS_CONTEXT_PADDING
@@ -215,6 +319,36 @@ class OcrRegionReader:
                 )
             )
         return candidates
+
+    def _resource_anchor_region(
+        self,
+        frame: np.ndarray,
+        region: tuple[int, int, int, int],
+        field_name: str,
+    ) -> tuple[int, int, int, int] | None:
+        bounds = RESOURCE_ICON_HSV.get(field_name)
+        if bounds is None:
+            return None
+        left, top, right, bottom = region
+        crop = frame[top:bottom, left:right]
+        if crop.size == 0:
+            return None
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        lower, upper = bounds
+        mask = cv2.inRange(hsv, np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+        icon_area = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(icon_area)
+        if w < 8 or h < 8:
+            return None
+        digit_left = left + x + w + max(4, w // 8)
+        digit_top = top + max(0, y - h // 6)
+        digit_right = right
+        digit_bottom = top + min(crop.shape[0], y + h + h // 5)
+        return self._clip_region(frame, (digit_left, digit_top, digit_right, digit_bottom))
 
     def _cargo_power_regions(
         self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]
@@ -259,7 +393,7 @@ class OcrRegionReader:
             return ""
         prepared = self._prepare_crop(crop, field_name)
         text = self._ocr_best_text(engine, prepared, field_name)
-        if text or field_name not in {"level", "stamina", "power", "diamonds"}:
+        if text:
             return text
         for variant in self._fallback_variants(prepared):
             text = self._ocr_best_text(engine, variant, field_name)
@@ -276,7 +410,7 @@ class OcrRegionReader:
             right = max(left + 1, int(width * focus[2]))
             bottom = max(top + 1, int(height * focus[3]))
             crop = crop[top:bottom, left:right]
-        scale = 4 if field_name in INTEGER_FIELDS else 3
+        scale = 4 if field_name in INTEGER_FIELDS or field_name in RESOURCE_FIELDS or field_name == "power" else 3
         height, width = crop.shape[:2]
         if width < 240 or height < 80:
             crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
@@ -294,7 +428,10 @@ class OcrRegionReader:
         ]
 
     def _ocr_best_text(self, engine, image: np.ndarray, field_name: str) -> str:
-        result = engine.ocr(image, cls=False)
+        try:
+            result = engine.ocr(image, cls=False)
+        except Exception:
+            return ""
         candidates = self._extract_candidates(result)
         return self._select_candidate(candidates, field_name)
 
@@ -307,6 +444,23 @@ class OcrRegionReader:
                     confidence = float(item[1][1]) if len(item[1]) > 1 else 0.0
                     candidates.append((text, confidence))
         return candidates
+
+    def _extract_text_boxes(self, result, scale: int = 1) -> list[tuple[str, float, tuple[int, int]]]:
+        items: list[tuple[str, float, tuple[int, int]]] = []
+        for line in result or []:
+            for item in line or []:
+                if len(item) < 2 or not item[1]:
+                    continue
+                box = item[0]
+                text = str(item[1][0])
+                confidence = float(item[1][1]) if len(item[1]) > 1 else 0.0
+                if not box:
+                    continue
+                xs = [point[0] for point in box]
+                ys = [point[1] for point in box]
+                center = (int(round(sum(xs) / len(xs) / max(1, scale))), int(round(sum(ys) / len(ys) / max(1, scale))))
+                items.append((text, confidence, center))
+        return items
 
     def _select_candidate(self, candidates: list[tuple[str, float]], field_name: str) -> str:
         best_text = ""
@@ -330,7 +484,11 @@ class OcrRegionReader:
                 if not match:
                     continue
                 token = match.group(0)
+                if field_name in RESOURCE_FIELDS and token[-1:] not in {"K", "M", "B"} and "." in token:
+                    token = f"{token}M"
             score = len(token) + confidence
+            if field_name in RESOURCE_FIELDS and token[-1:] in {"K", "M", "B"}:
+                score += 0.8
             if score > best_score:
                 best_score = score
                 best_text = token

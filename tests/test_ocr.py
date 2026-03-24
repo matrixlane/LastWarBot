@@ -36,3 +36,14 @@ def test_cargo_power_regions_expand_from_icon_size():
 
     assert regions
     assert min(item[0] for item in regions) > 400
+
+
+def test_resource_candidates_include_anchor_region():
+    reader = OcrRegionReader(OcrConfig())
+    frame = np.zeros((60, 240, 3), dtype=np.uint8)
+    frame[5:35, 8:38] = (0, 180, 255)
+    region = (0, 0, 220, 50)
+
+    candidates = reader._candidate_regions(frame, region, "gold")
+
+    assert len(candidates) >= 2

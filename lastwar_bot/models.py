@@ -63,6 +63,8 @@ class PlayerStats:
             return "-"
         if key in {"\u7b49\u7ea7", "\u4f53\u529b", "\u94bb\u77f3"}:
             return str(int(value))
+        if key == "\u6218\u529b":
+            return str(int(round(value)))
         return PlayerStats._humanize_number(float(value))
 
     @staticmethod

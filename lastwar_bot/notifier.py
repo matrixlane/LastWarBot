@@ -1,9 +1,14 @@
 ﻿from __future__ import annotations
 
 import json
+import os
+import queue
 import subprocess
+import threading
 from typing import Any
 from urllib import request
+
+from .logging_utils import timestamp
 
 from .config import OpenClawConfig
 
@@ -21,6 +26,9 @@ def render_template(value: Any, variables: dict[str, Any]) -> Any:
 class OpenClawNotifier:
     def __init__(self, config: OpenClawConfig) -> None:
         self.config = config
+        self._send_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._worker = threading.Thread(target=self._worker_loop, name="openclaw-notifier", daemon=True)
+        self._worker.start()
 
     def build_payload(self, message: str, event: str) -> dict[str, Any]:
         return render_template(self.config.payload_template, {"message": message, "event": event})
@@ -38,13 +46,15 @@ class OpenClawNotifier:
         )
         if not isinstance(rendered, list):
             raise RuntimeError("OpenClaw cli_command must be a list")
-        command = [str(part) for part in rendered]
+        command = [os.path.expandvars(str(part)) for part in rendered]
         executable = command[0].lower()
         if executable.endswith(".cmd") or executable.endswith(".bat"):
             return ["cmd", "/c", *command]
         return command
 
     def send(self, message: str, event: str = "notification") -> None:
+        if not self.config.enabled:
+            return
         if self.config.mode == "cli":
             command = self.build_cli_command(message=message, event=event)
             completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
@@ -57,3 +67,18 @@ class OpenClawNotifier:
         req = request.Request(self.config.url, data=data, headers=self.config.headers, method="POST")
         with request.urlopen(req, timeout=5) as response:
             response.read()
+
+    def send_async(self, message: str, event: str = "notification") -> None:
+        if not self.config.enabled:
+            return
+        self._send_queue.put((message, event))
+
+    def _worker_loop(self) -> None:
+        while True:
+            message, event = self._send_queue.get()
+            try:
+                self.send(message=message, event=event)
+            except Exception as exc:
+                print(f"[{timestamp()}] OpenClaw异步通知失败：{exc}")
+            finally:
+                self._send_queue.task_done()

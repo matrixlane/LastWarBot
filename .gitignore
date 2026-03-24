@@ -18,6 +18,7 @@ release/
 # Logs and runtime artifacts
 logs/
 *.log
+*.zip
 bot.stdout.log
 bot.stderr.log
 bot_exe_stdout.log
@@ -29,6 +30,7 @@ bot_exe_stderr.log
 # Sensitive local screenshots and sample captures
 screenshots/
 images/samples/
+tmp_video_frames/
 
 # Optional local overrides
 config.local.yaml

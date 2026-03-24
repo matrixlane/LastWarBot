@@ -60,10 +60,11 @@ class ActionExecutor:
             self._excavator_alert_count += 1
             self.event_logger.log_excavator(analysis.excavator, self._excavator_alert_count, analysis.screen_state)
             actions.append(f"notify:挖掘机:{self._excavator_alert_count}")
-            try:
-                self.notifier.send("直接显示：检测到挖掘机图标，请尽快处理。", event="excavator")
-            except Exception as exc:
-                print(f"[{timestamp()}] OpenClaw通知失败：{exc}")
+            if self.openclaw.enabled and self.openclaw.excavator_enabled:
+                try:
+                    self.notifier.send_async("直接显示：检测到挖掘机图标，请尽快处理。", event="excavator")
+                except Exception as exc:
+                    print(f"[{timestamp()}] OpenClaw通知失败：{exc}")
             self._last_excavator_alert = now
         self._excavator_visible = excavator_now
         return actions
