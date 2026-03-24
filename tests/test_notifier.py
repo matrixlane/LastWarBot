@@ -10,6 +10,6 @@ def test_build_payload_renders_variables():
         )
     )
 
-    payload = notifier.build_payload("hello", event="excavator")
+    payload = notifier.build_payload("hello", event="dig_up_treasure")
 
-    assert payload == {"message": "hello", "event": "excavator", "meta": {"source": "bot"}}
+    assert payload == {"message": "hello", "event": "dig_up_treasure", "meta": {"source": "bot"}}

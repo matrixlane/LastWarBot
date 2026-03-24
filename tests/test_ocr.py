@@ -1,6 +1,6 @@
 import numpy as np
 
-from lastwar_bot.config import OcrConfig
+from lastwar_bot.config import PlayerInfoConfig
 from lastwar_bot.ocr import OcrRegionReader, normalize_ocr_text, parse_numeric_text
 
 
@@ -20,7 +20,7 @@ def test_parse_numeric_text_supports_grouped_periods():
 
 
 def test_resolve_region_scales_absolute_coordinates_with_frame_size():
-    reader = OcrRegionReader(OcrConfig())
+    reader = OcrRegionReader(PlayerInfoConfig())
     frame = np.zeros((720, 1280, 3), dtype=np.uint8)
 
     region = reader._resolve_region(frame, (1788, 0, 1918, 56))
@@ -28,18 +28,18 @@ def test_resolve_region_scales_absolute_coordinates_with_frame_size():
     assert region == (1192, 0, 1279, 37)
 
 
-def test_cargo_power_regions_expand_from_icon_size():
-    reader = OcrRegionReader(OcrConfig())
+def test_truck_power_regions_expand_from_icon_size():
+    reader = OcrRegionReader(PlayerInfoConfig())
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
 
-    regions = reader._cargo_power_regions(frame, (400, 500), (24, 24))
+    regions = reader._truck_power_regions(frame, (400, 500), (24, 24))
 
     assert regions
     assert min(item[0] for item in regions) > 400
 
 
 def test_resource_candidates_include_anchor_region():
-    reader = OcrRegionReader(OcrConfig())
+    reader = OcrRegionReader(PlayerInfoConfig())
     frame = np.zeros((60, 240, 3), dtype=np.uint8)
     frame[5:35, 8:38] = (0, 180, 255)
     region = (0, 0, 220, 50)

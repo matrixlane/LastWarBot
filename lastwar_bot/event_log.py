@@ -22,7 +22,7 @@ class EventLogger:
         if self.config.enabled:
             self.log_dir.mkdir(parents=True, exist_ok=True)
 
-    def log_handshake(self, detection: DetectionResult, count: int, screen_state: ScreenState) -> None:
+    def log_alliance_help(self, detection: DetectionResult, count: int, screen_state: ScreenState) -> None:
         self._append(
             event="同盟帮助",
             screen_state=screen_state,
@@ -30,15 +30,15 @@ class EventLogger:
             extra={"次数": count},
         )
 
-    def log_excavator(self, detection: DetectionResult, count: int, screen_state: ScreenState) -> None:
+    def log_dig_up_treasure(self, detection: DetectionResult, count: int, screen_state: ScreenState) -> None:
         self._append(
-            event="挖掘机",
+            event="DigUpTreasure",
             screen_state=screen_state,
             detection=detection,
             extra={"次数": count},
         )
 
-    def latest_excavator_count(self, day: date | None = None) -> int:
+    def latest_dig_up_treasure_count(self, day: date | None = None) -> int:
         if not self.config.enabled:
             return 0
         path = self._log_path(day)
@@ -47,7 +47,7 @@ class EventLogger:
         latest = 0
         with path.open("r", encoding="utf-8") as handle:
             for line in handle:
-                if "事件=挖掘机" not in line or "次数=" not in line:
+                if "事件=DigUpTreasure" not in line or "次数=" not in line:
                     continue
                 for part in line.strip().split():
                     if not part.startswith("次数="):
@@ -58,7 +58,7 @@ class EventLogger:
                         continue
         return latest
 
-    def latest_handshake_count(self, day: date | None = None) -> int:
+    def latest_alliance_help_count(self, day: date | None = None) -> int:
         if not self.config.enabled:
             return 0
         path = self._log_path(day)

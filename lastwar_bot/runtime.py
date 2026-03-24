@@ -80,13 +80,13 @@ class LastWarBot:
         self.window_manager = WindowManager(config.window)
         self.capturer = FrameCapturer(self.window_manager)
         self.matcher = TemplateMatcher(config.matching, root_dir=self.root_dir)
-        self.ocr = OcrRegionReader(config.ocr)
+        self.player_info_reader = OcrRegionReader(config.player_info)
         self.notifier = OpenClawNotifier(config.openclaw)
         self.event_logger = EventLogger(config.event_log, root_dir=self.root_dir)
         self.actions = ActionExecutor(
-            config.cooldowns,
+            config.alliance_help,
+            config.dig_up_treasure,
             self.notifier,
-            config.sounds,
             config.openclaw,
             self.event_logger,
             root_dir=self.root_dir,
@@ -94,11 +94,11 @@ class LastWarBot:
         self.run_state = BotRunState.RUNNING
         self.stop_event = threading.Event()
         self._cycle_lock = threading.Lock()
-        self._ocr_warning_printed = False
+        self._player_info_warning_printed = False
         self._environment_logged = False
         self._last_screen_state: ScreenState | None = None
         self._last_stats = PlayerStats()
-        self._last_ocr_at = 0.0
+        self._last_player_info_at = 0.0
         self._stats_lock = threading.Lock()
         self._stats_request_event = threading.Event()
         self._stats_worker_stop_event = threading.Event()
@@ -106,17 +106,17 @@ class LastWarBot:
         self._stats_request_pending = False
         self._stats_updated = False
         self._pending_stats_frame = None
-        self._last_excavator_detection = None
-        self._pending_excavator_detection = None
-        self._excavator_confirm_hits = 0
-        self._cargo_skip_event = threading.Event()
-        self._waiting_for_cargo_skip = False
-        self._cargo_task_active = False
+        self._last_dig_up_treasure_detection = None
+        self._pending_dig_up_treasure_detection = None
+        self._dig_up_treasure_confirm_hits = 0
+        self._truck_skip_event = threading.Event()
+        self._waiting_for_truck_skip = False
+        self._truck_task_active = False
         self._station_task_active = False
-        self._cargo_search_paused = False
-        self._cargo_restart_requested = False
+        self._truck_search_paused = False
+        self._truck_restart_requested = False
         self._last_refresh_point: tuple[int, int] | None = None
-        self._last_cargo_inspected_count = 0
+        self._last_truck_inspected_count = 0
         self._high_value_truck_sound = self.root_dir / "sounds" / "\u9ad8\u4ef7\u503c\u8d27\u8f66.wav"
         self._latest_log_handle = None
         self._stdout_original = None
@@ -141,7 +141,7 @@ class LastWarBot:
         self._start_stats_worker()
         self.hotkeys.start()
         print(f"[{timestamp()}] 程序已启动")
-        if self.config.openclaw.enabled and self.config.openclaw.startup_enabled:
+        if self.config.openclaw.enabled and self.config.startup.openclaw_message_enabled:
             try:
                 self.notifier.send_async("直接显示：Last War Bot 已成功启动。", event="startup")
             except Exception as exc:
@@ -177,14 +177,14 @@ class LastWarBot:
             self._set_running()
 
     def skip_current_truck(self) -> None:
-        if self._waiting_for_cargo_skip:
-            self._cargo_skip_event.set()
+        if self._waiting_for_truck_skip:
+            self._truck_skip_event.set()
             print(f"[{timestamp()}] \u5df2\u8df3\u8fc7\u5f53\u524d\u8d27\u8f66\uff0c\u7ee7\u7eed\u641c\u7d22\u3002")
             return
-        if not self._cargo_task_active:
+        if not self._truck_task_active:
             return
-        self._cargo_search_paused = not self._cargo_search_paused
-        if self._cargo_search_paused:
+        self._truck_search_paused = not self._truck_search_paused
+        if self._truck_search_paused:
             print(f"[{timestamp()}] \u8d27\u8f66\u641c\u7d22\u5df2\u6682\u505c\uff0c\u518d\u6309F6\u7ee7\u7eed\u3002")
         else:
             print(f"[{timestamp()}] \u8d27\u8f66\u641c\u7d22\u5df2\u7ee7\u7eed\u3002")
@@ -233,26 +233,26 @@ class LastWarBot:
 
     def center_station(self) -> None:
         if self._station_task_active:
-            if self._cargo_task_active:
-                self._cargo_restart_requested = True
-                self._cargo_search_paused = False
-                self._cargo_skip_event.set()
+            if self._truck_task_active:
+                self._truck_restart_requested = True
+                self._truck_search_paused = False
+                self._truck_skip_event.set()
                 print(f"[{timestamp()}] \u5df2\u6536\u5230F5\uff0c\u653e\u5f03\u5f53\u524d\u8d27\u8f66\u641c\u7d22\u5e76\u91cd\u65b0\u5f00\u59cb\u3002")
             else:
                 print(f"[{timestamp()}] F5任务已在执行，忽略重复触发。")
             return
         self._station_task_active = True
-        if self._cargo_task_active:
-            self._cargo_restart_requested = True
-            self._cargo_search_paused = False
-            self._cargo_skip_event.set()
+        if self._truck_task_active:
+            self._truck_restart_requested = True
+            self._truck_search_paused = False
+            self._truck_skip_event.set()
             print(f"[{timestamp()}] \u5df2\u6536\u5230F5\uff0c\u653e\u5f03\u5f53\u524d\u8d27\u8f66\u641c\u7d22\u5e76\u91cd\u65b0\u5f00\u59cb\u3002")
             self._station_task_active = False
             return
         try:
             self._set_paused()
             while True:
-                self._cargo_restart_requested = False
+                self._truck_restart_requested = False
                 with self._cycle_lock:
                     handle = self.window_manager.find_game_window()
                     if handle is None:
@@ -327,8 +327,8 @@ class LastWarBot:
                         f"[{timestamp()}] F5\u5b8c\u6210\uff1a\u5df2\u70b9\u51fb\u8f66\u7ad9\u56fe\u6807\uff0c"
                         f"\u7f6e\u4fe1\u5ea6={station_icon.confidence:.2f}\uff0c\u5750\u6807={station_icon.center}\u3002"
                     )
-                self._run_cargo_task(handle.hwnd)
-                if not self._cargo_restart_requested:
+                self._run_truck_task(handle.hwnd)
+                if not self._truck_restart_requested:
                     return
                 print(f"[{timestamp()}] \u6b63\u5728\u91cd\u65b0\u5b9a\u4f4d\u8f66\u7ad9\u5e76\u5f00\u59cb\u65b0\u7684\u641c\u7d22\u3002")
         except Exception as exc:
@@ -393,9 +393,9 @@ class LastWarBot:
         analysis = self._stabilize_analysis(analysis)
         self._log_screen_state_change(analysis.screen_state)
         analysis.stats, analysis.stats_refreshed = self._get_stats(frame, analysis.screen_state)
-        if self.ocr.disabled_reason and not self._ocr_warning_printed:
-            print(f"[{timestamp()}] OCR \u5df2\u7981\u7528\uff1a{self.ocr.disabled_reason}")
-            self._ocr_warning_printed = True
+        if self.player_info_reader.disabled_reason and not self._player_info_warning_printed:
+            print(f"[{timestamp()}] 文字识别功能已禁用：{self.player_info_reader.disabled_reason}")
+            self._player_info_warning_printed = True
         self._log_cycle_state(handle.hwnd, analysis)
         self._log_detection_failures(frame, analysis)
 
@@ -408,94 +408,94 @@ class LastWarBot:
             print(summary)
 
     def _stabilize_analysis(self, analysis: FrameAnalysis) -> FrameAnalysis:
-        if analysis.excavator is not None:
-            if self._pending_excavator_detection is None:
-                self._pending_excavator_detection = analysis.excavator
-                self._excavator_confirm_hits = 1
-                analysis.excavator = None
+        if analysis.dig_up_treasure is not None:
+            if self._pending_dig_up_treasure_detection is None:
+                self._pending_dig_up_treasure_detection = analysis.dig_up_treasure
+                self._dig_up_treasure_confirm_hits = 1
+                analysis.dig_up_treasure = None
                 return analysis
-            pending = self._pending_excavator_detection
+            pending = self._pending_dig_up_treasure_detection
             distance = float(
                 np.hypot(
-                    analysis.excavator.center[0] - pending.center[0],
-                    analysis.excavator.center[1] - pending.center[1],
+                    analysis.dig_up_treasure.center[0] - pending.center[0],
+                    analysis.dig_up_treasure.center[1] - pending.center[1],
                 )
             )
-            if distance <= max(20.0, max(analysis.excavator.size) * 0.5):
-                self._excavator_confirm_hits += 1
+            if distance <= max(20.0, max(analysis.dig_up_treasure.size) * 0.5):
+                self._dig_up_treasure_confirm_hits += 1
             else:
-                self._pending_excavator_detection = analysis.excavator
-                self._excavator_confirm_hits = 1
-                analysis.excavator = None
+                self._pending_dig_up_treasure_detection = analysis.dig_up_treasure
+                self._dig_up_treasure_confirm_hits = 1
+                analysis.dig_up_treasure = None
                 return analysis
-            self._pending_excavator_detection = analysis.excavator
-            if self._excavator_confirm_hits < 2:
-                analysis.excavator = None
+            self._pending_dig_up_treasure_detection = analysis.dig_up_treasure
+            if self._dig_up_treasure_confirm_hits < 2:
+                analysis.dig_up_treasure = None
                 return analysis
-            self._last_excavator_detection = analysis.excavator
+            self._last_dig_up_treasure_detection = analysis.dig_up_treasure
             return analysis
-        self._pending_excavator_detection = None
-        self._excavator_confirm_hits = 0
-        self._last_excavator_detection = None
+        self._pending_dig_up_treasure_detection = None
+        self._dig_up_treasure_confirm_hits = 0
+        self._last_dig_up_treasure_detection = None
         return analysis
 
-    def _run_cargo_task(self, hwnd: int) -> None:
-        self._cargo_task_active = True
+    def _run_truck_task(self, hwnd: int) -> None:
+        self._truck_task_active = True
         self._last_refresh_point = None
-        self._cargo_search_paused = False
+        self._truck_search_paused = False
         try:
-            trucks = self._wait_for_cargo_trucks(hwnd, first_entry=True)
+            trucks = self._wait_for_trucks(hwnd, first_entry=True)
             refresh_count = 0
             while True:
-                if self._cargo_restart_requested:
+                if self._truck_restart_requested:
                     return
-                self._wait_if_cargo_paused()
-                if self._cargo_restart_requested:
+                self._wait_if_truck_paused()
+                if self._truck_restart_requested:
                     return
                 if not trucks:
-                    if refresh_count >= self.config.cargo.max_refresh_attempts:
+                    if refresh_count >= self.config.truck.max_refresh_attempts:
                         print(
-                            f"[{timestamp()}] 已连续刷新{self.config.cargo.max_refresh_attempts}次，"
+                            f"[{timestamp()}] 已连续刷新{self.config.truck.max_refresh_attempts}次，"
                             "未获得有效货车列表，任务中止。"
                         )
                         return
-                    if not self._refresh_cargo_screen(hwnd):
+                    if not self._refresh_truck_screen(hwnd):
                         print(f"[{timestamp()}] 未找到货车刷新按钮，将继续等待并重试。")
-                        self._sleep_with_cargo_pause(max(0.5, self.config.cargo.sample_interval_seconds))
-                        trucks = self._wait_for_cargo_trucks(hwnd, first_entry=False)
+                        self._sleep_with_truck_pause(max(0.5, self.config.truck.sample_interval_seconds))
+                        trucks = self._wait_for_trucks(hwnd, first_entry=False)
                         continue
                     refresh_count += 1
                     print(
                         f"[{timestamp()}] 当前货车列表无效，正在刷新页面后继续搜索"
-                        f"({refresh_count}/{self.config.cargo.max_refresh_attempts})。"
+                        f"({refresh_count}/{self.config.truck.max_refresh_attempts})。"
                     )
-                    self._sleep_with_cargo_pause(self.config.cargo.refresh_wait_seconds)
-                    trucks = self._wait_for_cargo_trucks(hwnd, first_entry=False)
+                    self._sleep_with_truck_pause(self.config.truck.refresh_wait_seconds)
+                    trucks = self._wait_for_trucks(hwnd, first_entry=False)
                     continue
-                summary = format_cycle_summary(FrameAnalysis(screen_state=ScreenState.OTHER, cargo_trucks=trucks), [])
+                summary = format_cycle_summary(FrameAnalysis(screen_state=ScreenState.OTHER, trucks=trucks), [])
                 if summary:
                     print(summary)
 
                 if self._inspect_trucks_for_ur(hwnd, trucks):
                     return
-                if self._last_cargo_inspected_count == 0:
+                if self._last_truck_inspected_count == 0:
                     print(f"[{timestamp()}] 当前货车列表无效，正在重新识别。")
-                    trucks = self._wait_for_cargo_trucks(hwnd, first_entry=False)
+                    trucks = self._wait_for_trucks(hwnd, first_entry=False)
                     if trucks:
                         continue
                     continue
 
-                if refresh_count >= self.config.cargo.max_refresh_attempts:
+                if refresh_count >= self.config.truck.max_refresh_attempts:
                     print(
-                        f"[{timestamp()}] \u5df2\u8fde\u7eed\u5237\u65b0{self.config.cargo.max_refresh_attempts}\u6b21\uff0c"
+                        f"[{timestamp()}] \u5df2\u8fde\u7eed\u5237\u65b0{self.config.truck.max_refresh_attempts}\u6b21\uff0c"
                         "\u672a\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u8d27\u8f66\uff0c\u4efb\u52a1\u4e2d\u6b62\u3002"
                     )
                     return
 
-                if not self._refresh_cargo_screen(hwnd):
+                if not self._refresh_truck_screen(hwnd):
                     print(f"[{timestamp()}] \u672a\u627e\u5230\u8d27\u8f66\u5237\u65b0\u6309\u94ae\uff0c\u5c06\u7ee7\u7eed\u7b49\u5f85\u5e76\u91cd\u8bd5\u3002")
-                    self._sleep_with_cargo_pause(max(0.5, self.config.cargo.sample_interval_seconds))
-                    trucks = self._wait_for_cargo_trucks(hwnd, first_entry=False)
+                    self._sleep_with_truck_pause(max(0.5, self.config.truck.sample_interval_seconds))
+                    trucks = self._wait_for_trucks(hwnd, first_entry=False)
                     if trucks:
                         continue
                     print(f"[{timestamp()}] \u91cd\u8bd5\u540e\u4ecd\u672a\u8bc6\u522b\u5230\u8d27\u8f66\u5217\u8868\uff0c\u4efb\u52a1\u4e2d\u6b62\u3002")
@@ -504,38 +504,38 @@ class LastWarBot:
                 refresh_count += 1
                 print(
                     f"[{timestamp()}] \u672a\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u8d27\u8f66\uff0c"
-                    f"\u6b63\u5728\u5237\u65b0({refresh_count}/{self.config.cargo.max_refresh_attempts})\u3002"
+                    f"\u6b63\u5728\u5237\u65b0({refresh_count}/{self.config.truck.max_refresh_attempts})\u3002"
                 )
-                self._sleep_with_cargo_pause(self.config.cargo.refresh_wait_seconds)
-                trucks = self._wait_for_cargo_trucks(hwnd, first_entry=False)
+                self._sleep_with_truck_pause(self.config.truck.refresh_wait_seconds)
+                trucks = self._wait_for_trucks(hwnd, first_entry=False)
                 if not trucks:
                     print(f"[{timestamp()}] \u5237\u65b0\u540e\u6682\u672a\u8bc6\u522b\u5230\u8d27\u8f66\uff0c\u5c06\u7ee7\u7eed\u7b49\u5f85/\u5237\u65b0\u3002")
                     continue
         finally:
-            self._cargo_task_active = False
-            self._cargo_search_paused = False
-            self._waiting_for_cargo_skip = False
-            self._cargo_skip_event.clear()
+            self._truck_task_active = False
+            self._truck_search_paused = False
+            self._waiting_for_truck_skip = False
+            self._truck_skip_event.clear()
 
-    def _wait_for_cargo_trucks(self, hwnd: int, first_entry: bool) -> list[TruckDetection]:
+    def _wait_for_trucks(self, hwnd: int, first_entry: bool) -> list[TruckDetection]:
         previous_trucks: list[TruckDetection] = []
-        distribution_retry_count = max(3, self.config.cargo.enter_retry_count)
+        distribution_retry_count = max(3, self.config.truck.enter_retry_count)
         distribution_failures = 0
-        quick_wait = max(0.35, self.config.cargo.sample_interval_seconds)
+        quick_wait = max(0.35, self.config.truck.sample_interval_seconds)
         attempt = 0
         while distribution_failures < distribution_retry_count:
-            if self._cargo_restart_requested:
+            if self._truck_restart_requested:
                 return []
             if attempt == 0:
-                wait_seconds = self.config.cargo.enter_wait_seconds if first_entry else quick_wait
+                wait_seconds = self.config.truck.enter_wait_seconds if first_entry else quick_wait
             else:
                 wait_seconds = quick_wait
-            self._sleep_with_cargo_pause(wait_seconds)
-            if self._cargo_restart_requested:
+            self._sleep_with_truck_pause(wait_seconds)
+            if self._truck_restart_requested:
                 return []
             emit_log = attempt > 0 or not previous_trucks
             relax_level = min(distribution_failures, 3)
-            trucks = self._sample_cargo_trucks(hwnd, emit_log=emit_log, relax_level=relax_level)
+            trucks = self._sample_trucks(hwnd, emit_log=emit_log, relax_level=relax_level)
             if not self._has_valid_truck_list(trucks):
                 distribution_failures += 1
                 print(
@@ -546,7 +546,7 @@ class LastWarBot:
                     print(f"[{timestamp()}] 货车列表连续未达到“至少2紫2金”规则，将按当前列表继续搜索。")
                     return trucks or previous_trucks
                 previous_trucks = trucks or previous_trucks
-                self._sleep_with_cargo_pause(quick_wait)
+                self._sleep_with_truck_pause(quick_wait)
                 attempt += 1
                 continue
             if trucks and self.config.debug.enabled:
@@ -574,83 +574,92 @@ class LastWarBot:
         return f"总数={len(trucks)} 金色={gold_count} 紫色={purple_count}"
 
     def _inspect_trucks_for_ur(self, hwnd: int, trucks: list[TruckDetection]) -> bool:
-        alert_threshold = max(1, self.config.cargo.ur_fragment_alert_count)
-        self._last_cargo_inspected_count = 0
+        search_threshold = max(1, self.config.truck.min_ur_shards)
+        self._last_truck_inspected_count = 0
         print(f"[{timestamp()}] 开始遍历货车列表，共{len(trucks)}辆。")
         for index, truck in enumerate(trucks, start=1):
-            if self._cargo_restart_requested:
+            if self._truck_restart_requested:
                 return False
-            self._wait_if_cargo_paused()
-            if self._cargo_restart_requested:
+            self._wait_if_truck_paused()
+            if self._truck_restart_requested:
                 return False
-            self._last_cargo_inspected_count += 1
+            self._last_truck_inspected_count += 1
             print(f"[{timestamp()}] 正在检查货车{index}：{self._truck_type_label(truck.truck_type)}@{truck.center}")
             frame = self._open_truck_detail(hwnd, truck)
             if frame is None:
                 print(f"[{timestamp()}] 未能进入货车{index}详情，已跳过：{self._truck_type_label(truck.truck_type)}@{truck.center}")
                 continue
             truck_label = "金色货车" if truck.truck_type == "gold" else "紫色货车"
-            ur_fragments, frame = self._confirm_ur_fragments(hwnd, truck_label, truck.center, frame, alert_threshold)
-            if not ur_fragments:
+            ur_shards, frame = self._confirm_ur_shards(hwnd, truck_label, truck.center, frame, search_threshold)
+            if not ur_shards:
                 continue
-            self._wait_if_cargo_paused()
-            if self._cargo_restart_requested:
+            self._wait_if_truck_paused()
+            if self._truck_restart_requested:
                 return False
-            count = len(ur_fragments)
-            print(f"[{timestamp()}] {truck_label}@{truck.center} UR碎片x{count}")
-            if count < alert_threshold:
+            count = len(ur_shards)
+            print(f"[{timestamp()}] {truck_label}@{truck.center} UR碎片 x{count}")
+            if count < search_threshold:
                 continue
-            power_threshold_m = max(0.0, self.config.cargo.min_target_power_m)
+            power_threshold_m = max(0.0, self.config.truck.min_target_power_m)
             if power_threshold_m > 0 and self._should_skip_truck_for_power(hwnd, truck_label, truck.center, frame, power_threshold_m):
                 continue
-            self._play_high_value_truck_sound()
-            if self.config.cargo.auto_share_enabled:
-                if self._share_cargo_to_r4r5(hwnd, truck_label, truck.center, frame):
-                    print(f"[{timestamp()}] 已自动分享目标货车，继续搜索下一辆。")
+            if self.config.truck.alert_enabled:
+                self._play_high_value_truck_sound()
+            share_target = self.config.truck.share_target_for(count)
+            if share_target is not None:
+                print(
+                    f"[{timestamp()}] 已命中自动分享条件："
+                        f"{self._share_target_label(share_target)}，UR碎片 x{count}。"
+                )
+                if self._share_truck(hwnd, truck_label, truck.center, frame, share_target):
+                    print(
+                        f"[{timestamp()}] 已自动分享目标货车到"
+                        f"{self._share_target_label(share_target)}，继续搜索下一辆。"
+                    )
                     continue
                 print(f"[{timestamp()}] 自动分享失败，保留当前目标等待人工处理。")
-            if self._wait_for_cargo_skip(truck_label, truck.center, count):
+            if self._wait_for_truck_skip(truck_label, truck.center, count):
                 continue
             return True
         return False
 
-    def _extract_cargo_power(self, frame) -> float | None:
+    def _extract_truck_power(self, frame) -> float | None:
         try:
-            panel_rect = self.matcher.detect_cargo_panel(frame)
-            icon = self.matcher.find_cargo_power_icon(frame, panel_rect=panel_rect)
+            panel_rect = self.matcher.detect_truck_panel(frame)
+            icon = self.matcher.find_truck_power_icon(frame, panel_rect=panel_rect)
             if icon is not None:
-                value = self.ocr.extract_cargo_power(frame, icon.top_left, icon.size)
+                value = self.player_info_reader.extract_truck_power(frame, icon.top_left, icon.size)
                 if value is not None:
                     return value
             if panel_rect is None:
                 return None
-            return self.ocr.extract_cargo_power_from_panel(frame, panel_rect)
+            return self.player_info_reader.extract_truck_power_from_panel(frame, panel_rect)
         except Exception:
             return None
 
-    def _confirm_ur_fragments(
+    def _confirm_ur_shards(
         self,
         hwnd: int,
         truck_label: str,
         center: tuple[int, int],
         frame,
-        alert_threshold: int,
+        search_threshold: int,
     ):
-        ur_fragments = self.matcher.find_ur_fragments(frame)
-        if len(ur_fragments) >= alert_threshold or self._cargo_restart_requested:
-            return ur_fragments, frame
+        ur_shards = self.matcher.find_ur_shards(frame)
+        if len(ur_shards) >= search_threshold or self._truck_restart_requested:
+            return ur_shards, frame
 
-        self._sleep_with_cargo_pause(max(0.1, self.config.cargo.ur_confirm_interval_seconds))
+        self._sleep_with_truck_pause(max(0.1, self.config.truck.ur_shard_confirm_interval_seconds))
         confirm_frame = self.capturer.capture_bgr(hwnd)
-        confirm_ur_fragments = self.matcher.find_ur_fragments(confirm_frame)
-        if len(confirm_ur_fragments) > len(ur_fragments):
+        confirm_ur_shards = self.matcher.find_ur_shards(confirm_frame)
+        if len(confirm_ur_shards) > len(ur_shards):
             if self.config.debug.enabled:
                 print(
-                    f"[{timestamp()}] UR复核数量提升：{truck_label}@{center} "
-                    f"{len(ur_fragments)} -> {len(confirm_ur_fragments)}"
+                    f"[{timestamp()}] UR碎片复核数量提升：{truck_label}@{center} "
+                    f"{len(ur_shards)} -> {len(confirm_ur_shards)}"
                 )
-            return confirm_ur_fragments, confirm_frame
-        return ur_fragments, frame
+            return confirm_ur_shards, confirm_frame
+        return ur_shards, frame
 
     def _should_skip_truck_for_power(
         self,
@@ -662,52 +671,48 @@ class LastWarBot:
     ) -> bool:
         threshold = threshold_m * 1_000_000
         print(f"[{timestamp()}] 正在核实货车战力：{truck_label}@{center} ...")
-        cargo_power = self._extract_cargo_power(frame)
-        if cargo_power is None:
+        truck_power = self._extract_truck_power(frame)
+        if truck_power is None:
             print(f"[{timestamp()}] 目标货车的战力：未识别")
             return False
-        print(f"[{timestamp()}] 目标货车的战力：{self._format_millions(cargo_power)}M")
-        if cargo_power <= threshold:
+        print(f"[{timestamp()}] 目标货车的战力：{self._format_millions(truck_power)}M")
+        if truck_power <= threshold:
             return False
 
         print(
-            f"[{timestamp()}] {truck_label}@{center} 战力={self._format_millions(cargo_power)}M，"
+            f"[{timestamp()}] {truck_label}@{center} 战力={self._format_millions(truck_power)}M，"
             f"高于阈值 {threshold_m:g}M，已跳过。"
         )
         return True
 
-    def _share_cargo_to_r4r5(
+    def _share_truck(
         self,
         hwnd: int,
         truck_label: str,
         center: tuple[int, int],
         frame,
+        share_target: str,
     ) -> bool:
-        share_button = self.matcher.find_cargo_share_button(frame)
+        share_button = self.matcher.find_truck_share_button(frame)
         if share_button is None:
             print(f"[{timestamp()}] 自动分享失败：未识别到分享按钮。")
             return False
 
         self._click_client_point(hwnd, share_button.center)
         print(f"[{timestamp()}] 已点击分享按钮，坐标={share_button.center}。")
-        self._sleep_with_cargo_pause(max(0.2, self.config.cargo.share_wait_seconds))
+        self._sleep_with_truck_pause(max(0.2, self.config.truck.share_wait_seconds))
 
         share_frame = self.capturer.capture_bgr(hwnd)
-        list_region = self.matcher.infer_share_list_region(share_frame)
-        group_center = self.ocr.find_text_center_in_region(share_frame, list_region, ("R4", "R5"))
+        group_center = self._resolve_share_group_center(share_frame, share_target)
         if group_center is None:
-            dialog_left, dialog_top, dialog_right, dialog_bottom = self.matcher.infer_share_dialog_rect(share_frame)
-            dialog_width = max(1, dialog_right - dialog_left)
-            dialog_height = max(1, dialog_bottom - dialog_top)
-            group_center = (
-                dialog_left + dialog_width // 2,
-                dialog_top + int(dialog_height * 0.56),
-            )
-            if self.config.debug.enabled:
-                print(f"[{timestamp()}] R4&R5 群未通过OCR命中，使用后备定位：{group_center}")
+            print(f"[{timestamp()}] 自动分享失败：未能定位分享目标 {self._share_target_label(share_target)}。")
+            return False
         self._click_client_point(hwnd, group_center)
-        print(f"[{timestamp()}] 已点击分享目标群 R4 & R5，坐标={group_center}。")
-        self._sleep_with_cargo_pause(max(0.2, self.config.cargo.share_confirm_wait_seconds))
+        print(
+            f"[{timestamp()}] 已点击分享目标 "
+            f"{self._share_target_label(share_target)}，坐标={group_center}。"
+        )
+        self._sleep_with_truck_pause(max(0.2, self.config.truck.share_confirm_wait_seconds))
 
         confirm_frame = self.capturer.capture_bgr(hwnd)
         confirm_button = self.matcher.find_share_confirm_button(confirm_frame)
@@ -717,46 +722,68 @@ class LastWarBot:
 
         self._click_client_point(hwnd, confirm_button.center)
         print(f"[{timestamp()}] 已确认分享 {truck_label}@{center}，坐标={confirm_button.center}。")
-        self._sleep_with_cargo_pause(max(0.2, self.config.cargo.share_confirm_wait_seconds))
+        self._sleep_with_truck_pause(max(0.2, self.config.truck.share_confirm_wait_seconds))
         return True
+
+    def _resolve_share_group_center(self, frame, share_target: str) -> tuple[int, int] | None:
+        if share_target == "alliance":
+            if self.config.debug.enabled:
+                print(f"[{timestamp()}] 同盟群按分享弹窗第二行位置定位。")
+            return self.matcher.infer_share_option_center(frame, row_index=1)
+
+        if share_target != "r4r5":
+            return None
+
+        list_region = self.matcher.infer_share_list_region(frame)
+        group_center = self.player_info_reader.find_text_center_in_region(frame, list_region, ("R4", "R5"))
+        if group_center is not None:
+            return group_center
+        group_center = self.matcher.infer_share_option_center(frame, row_index=2)
+        if self.config.debug.enabled:
+            print(f"[{timestamp()}] R4&R5 群未通过OCR命中，使用第三行后备定位：{group_center}")
+        return group_center
 
     @staticmethod
     def _format_millions(value: float) -> str:
         return f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".")
 
-    def _wait_for_cargo_skip(self, truck_label: str, center: tuple[int, int], count: int) -> bool:
-        self._cargo_skip_event.clear()
-        self._waiting_for_cargo_skip = True
+    @staticmethod
+    def _share_target_label(share_target: str) -> str:
+        return "R4 & R5" if share_target == "r4r5" else "同盟群"
+
+    def _wait_for_truck_skip(self, truck_label: str, center: tuple[int, int], count: int) -> bool:
+        self._truck_skip_event.clear()
+        self._waiting_for_truck_skip = True
         print(f"[{timestamp()}] \u5df2\u53d1\u73b0\u7b26\u5408\u6761\u4ef6\u7684\u8d27\u8f66\uff1a{truck_label}@{center} UR\u788e\u7247x{count}\uff0c\u6309F6\u8df3\u8fc7\u5f53\u524d\u8d27\u8f66\u5e76\u7ee7\u7eed\u641c\u7d22\u3002")
         try:
             while not self.stop_event.is_set():
-                if self._cargo_restart_requested:
+                if self._truck_restart_requested:
                     return False
-                if self._cargo_skip_event.wait(0.2):
-                    self._cargo_skip_event.clear()
+                if self._truck_skip_event.wait(0.2):
+                    self._truck_skip_event.clear()
                     return True
         finally:
-            self._waiting_for_cargo_skip = False
+            self._waiting_for_truck_skip = False
         return False
 
-    def _wait_if_cargo_paused(self) -> None:
-        while self._cargo_task_active and self._cargo_search_paused and not self.stop_event.is_set() and not self._cargo_restart_requested:
+    def _wait_if_truck_paused(self) -> None:
+        while self._truck_task_active and self._truck_search_paused and not self.stop_event.is_set() and not self._truck_restart_requested:
             time.sleep(0.2)
 
-    def _sleep_with_cargo_pause(self, seconds: float) -> None:
+    def _sleep_with_truck_pause(self, seconds: float) -> None:
         end_at = time.monotonic() + max(0.0, seconds)
         while not self.stop_event.is_set():
-            if self._cargo_restart_requested:
+            if self._truck_restart_requested:
                 return
-            self._wait_if_cargo_paused()
-            if self._cargo_restart_requested:
+            self._wait_if_truck_paused()
+            if self._truck_restart_requested:
                 return
             remaining = end_at - time.monotonic()
             if remaining <= 0:
                 return
             time.sleep(min(0.2, remaining))
 
-    def _refresh_cargo_screen(self, hwnd: int) -> bool:
+    def _refresh_truck_screen(self, hwnd: int) -> bool:
         if self._last_refresh_point is not None:
             if self.config.debug.enabled:
                 print(f"[{timestamp()}] 刷新按钮复用缓存坐标：{self._last_refresh_point}")
@@ -764,15 +791,15 @@ class LastWarBot:
             print(f"[{timestamp()}] 已点击货车界面刷新按钮，坐标={self._last_refresh_point}。")
             return True
 
-        quick_wait = max(0.35, self.config.cargo.sample_interval_seconds)
+        quick_wait = max(0.35, self.config.truck.sample_interval_seconds)
         for attempt in range(3):
             frame = self.capturer.capture_bgr(hwnd)
             frame_height, frame_width = frame.shape[:2]
             expected_point = (
-                int(frame_width * self.config.cargo.refresh_button_x_ratio),
-                int(frame_height * self.config.cargo.refresh_button_y_ratio),
+                int(frame_width * self.config.truck.refresh_button_x_ratio),
+                int(frame_height * self.config.truck.refresh_button_y_ratio),
             )
-            refresh_button = self.matcher.find_cargo_refresh_button(frame)
+            refresh_button = self.matcher.find_truck_refresh_button(frame)
             if refresh_button is not None and self._is_refresh_point_plausible(
                 refresh_button.center, expected_point, frame_width, frame_height
             ):
@@ -791,7 +818,7 @@ class LastWarBot:
                     f"[{timestamp()}] 刷新按钮当前不可可靠识别（重试 {attempt + 1}/3）。"
                 )
             if attempt < 2:
-                self._sleep_with_cargo_pause(quick_wait)
+                self._sleep_with_truck_pause(quick_wait)
         frame = self.capturer.capture_bgr(hwnd)
         inferred_points = self._infer_refresh_points(frame)
         for index, point in enumerate(inferred_points, start=1):
@@ -804,7 +831,7 @@ class LastWarBot:
         return False
 
     def _infer_refresh_points(self, frame) -> list[tuple[int, int]]:
-        panel_rect = self.matcher.detect_cargo_panel(frame)
+        panel_rect = self.matcher.detect_truck_panel(frame)
         if panel_rect is None:
             return []
         left, top, right, _ = panel_rect
@@ -838,12 +865,12 @@ class LastWarBot:
         max_dy = max(16, int(frame_height * 0.025))
         return abs(candidate[0] - expected[0]) <= max_dx and abs(candidate[1] - expected[1]) <= max_dy
 
-    def _sample_cargo_trucks(self, hwnd: int, emit_log: bool = True, relax_level: int = 0) -> list[TruckDetection]:
+    def _sample_trucks(self, hwnd: int, emit_log: bool = True, relax_level: int = 0) -> list[TruckDetection]:
         best_trucks: list[TruckDetection] = []
-        attempts = max(1, self.config.cargo.sample_attempts)
+        attempts = max(1, self.config.truck.sample_attempts)
         for attempt in range(attempts):
             frame = self.capturer.capture_bgr(hwnd)
-            trucks = self.matcher.detect_cargo_trucks(frame, relax_level=relax_level)
+            trucks = self.matcher.detect_trucks(frame, relax_level=relax_level)
             if len(trucks) > len(best_trucks):
                 best_trucks = trucks
             if emit_log and self.config.debug.enabled:
@@ -851,17 +878,17 @@ class LastWarBot:
             if best_trucks:
                 break
             if attempt < attempts - 1:
-                self._sleep_with_cargo_pause(self.config.cargo.sample_interval_seconds)
+                self._sleep_with_truck_pause(self.config.truck.sample_interval_seconds)
         if best_trucks:
             return best_trucks
-        retry_rounds = max(0, self.config.cargo.empty_result_retry_rounds)
+        retry_rounds = max(0, self.config.truck.empty_result_retry_rounds)
         for retry in range(retry_rounds):
             if emit_log and self.config.debug.enabled:
                 print(f"[{timestamp()}] \u8d27\u8f66\u91c7\u6837\u5ef6\u8fdf\u91cd\u8bd5 {retry + 1}/{retry_rounds}")
-            self._sleep_with_cargo_pause(self.config.cargo.enter_wait_seconds)
+            self._sleep_with_truck_pause(self.config.truck.enter_wait_seconds)
             for attempt in range(attempts):
                 frame = self.capturer.capture_bgr(hwnd)
-                trucks = self.matcher.detect_cargo_trucks(frame, relax_level=relax_level)
+                trucks = self.matcher.detect_trucks(frame, relax_level=relax_level)
                 if len(trucks) > len(best_trucks):
                     best_trucks = trucks
                 if emit_log and self.config.debug.enabled:
@@ -869,7 +896,7 @@ class LastWarBot:
                 if best_trucks:
                     return best_trucks
                 if attempt < attempts - 1:
-                    self._sleep_with_cargo_pause(self.config.cargo.sample_interval_seconds)
+                    self._sleep_with_truck_pause(self.config.truck.sample_interval_seconds)
         return best_trucks
 
     @staticmethod
@@ -891,15 +918,15 @@ class LastWarBot:
         base_x = truck.top_left[0] + truck.size[0] // 2
         base_y = truck.top_left[1] + max(6, int(round(truck.size[1] * 0.28)))
         target = (base_x, base_y)
-        if self._cargo_restart_requested:
+        if self._truck_restart_requested:
             return None
-        self._wait_if_cargo_paused()
-        if self._cargo_restart_requested:
+        self._wait_if_truck_paused()
+        if self._truck_restart_requested:
             return None
         if self.config.debug.enabled:
             print(f"[{timestamp()}] 点击货车详情，坐标={target}")
         self._click_client_point(hwnd, target)
-        self._sleep_with_cargo_pause(self.config.cargo.inspection_wait_seconds)
+        self._sleep_with_truck_pause(self.config.truck.inspection_wait_seconds)
         return self.capturer.capture_bgr(hwnd)
 
     def _zoom_out_to_min(self, hwnd: int) -> None:
@@ -966,8 +993,6 @@ class LastWarBot:
         pyautogui.click(left + point[0], top + point[1])
 
     def _play_high_value_truck_sound(self) -> None:
-        if not self.config.sounds.high_value_truck_enabled:
-            return
         try:
             import winsound
         except ImportError:
@@ -982,7 +1007,7 @@ class LastWarBot:
             return
         log_dir = self.root_dir / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        latest_path = log_dir / "LastWarBot_latest.log"
+        latest_path = log_dir / "Console_latest.log"
         self._latest_log_handle = latest_path.open("w", encoding="utf-8", buffering=1)
         self._stdout_original = sys.stdout
         self._stderr_original = sys.stderr
@@ -1006,7 +1031,7 @@ class LastWarBot:
         warnings.filterwarnings("ignore", message=".*No ccache found.*")
 
     def _get_stats(self, frame, screen_state: ScreenState) -> tuple[PlayerStats, bool]:
-        if not self.config.ocr.stats_enabled:
+        if not self.config.player_info.enabled:
             return PlayerStats(), False
 
         now = time.monotonic()
@@ -1019,8 +1044,8 @@ class LastWarBot:
         if screen_state == ScreenState.OTHER and self._has_stats(stats):
             return stats, stats_refreshed
 
-        ocr_interval = max(0.0, self.config.ocr.interval_seconds)
-        should_refresh = not self._has_stats(stats) or now - self._last_ocr_at >= ocr_interval
+        player_info_interval = max(0.0, self.config.player_info.interval_seconds)
+        should_refresh = not self._has_stats(stats) or now - self._last_player_info_at >= player_info_interval
         if screen_state != ScreenState.OTHER and should_refresh and not request_pending:
             self._request_stats_refresh(frame)
         return stats, stats_refreshed
@@ -1059,13 +1084,13 @@ class LastWarBot:
                 self._stats_request_event.clear()
             if frame is None:
                 continue
-            stats = self.ocr.extract_stats(frame)
+            stats = self.player_info_reader.extract_stats(frame)
             with self._stats_lock:
                 if self._has_stats(stats) or not self._has_stats(self._last_stats):
                     self._last_stats = stats
                 elif self.config.debug.enabled and self.config.debug.log_failed_detections:
-                    self._log_ocr_probe(frame)
-                self._last_ocr_at = time.monotonic()
+                    self._log_player_info_probe(frame)
+                self._last_player_info_at = time.monotonic()
                 self._stats_request_pending = False
                 self._stats_updated = True
 
@@ -1080,13 +1105,13 @@ class LastWarBot:
             return
         client_left, client_top, client_right, client_bottom = self.window_manager.get_client_rect_screen(hwnd)
         matcher_info = self.matcher.describe_frame(frame)
-        ocr_info = self.ocr.describe_frame(frame)
+        player_info = self.player_info_reader.describe_frame(frame)
         print(
             f"[{timestamp()}] 环境：Python版本={platform.python_version()} 架构={platform.machine()} "
             f"客户区={client_right - client_left}x{client_bottom - client_top} "
             f"原点=({client_left},{client_top}) "
             f"模板缩放提示={matcher_info['template_scale_hint']} "
-            f"OCR基准={ocr_info['ocr_base_width']}x{ocr_info['ocr_base_height']} "
+            f"玩家信息基准={player_info['ocr_base_width']}x{player_info['ocr_base_height']} "
             f"自动改窗={self.config.window.resize_enabled}"
         )
         self._environment_logged = True
@@ -1097,8 +1122,8 @@ class LastWarBot:
         width, height = self.window_manager.get_client_size(hwnd)
         print(
             f"[{timestamp()}] 调试：客户区={width}x{height} 地图={analysis.screen_state.value} "
-            f"同盟帮助图标={'是' if analysis.handshake else '否'} 挖掘机图标={'是' if analysis.excavator else '否'} "
-            f"货车数量={len(analysis.cargo_trucks)}"
+            f"Alliance Help图标={'是' if analysis.alliance_help else '否'} DigUpTreasure图标={'是' if analysis.dig_up_treasure else '否'} "
+            f"货车数量={len(analysis.trucks)}"
         )
 
     def _log_screen_state_change(self, screen_state: ScreenState) -> None:
@@ -1154,15 +1179,15 @@ class LastWarBot:
                 f"full={self._format_probe(full_probe)}"
             )
 
-    def _log_ocr_probe(self, frame) -> None:
-        info = self.ocr.describe_frame(frame)
+    def _log_player_info_probe(self, frame) -> None:
+        info = self.player_info_reader.describe_frame(frame)
         print(
-            f"[{timestamp()}] OCR调试：画面={info['width']}x{info['height']} "
+            f"[{timestamp()}] 玩家信息调试：画面={info['width']}x{info['height']} "
             f"缩放=({info['scale_x']},{info['scale_y']})"
         )
         if self.config.debug.log_ocr_regions:
-            for field_name, region in self.ocr.describe_regions(frame).items():
-                print(f"[{timestamp()}] OCR调试：区域[{field_name}]={region}")
+            for field_name, region in self.player_info_reader.describe_regions(frame).items():
+                print(f"[{timestamp()}] 玩家信息调试：区域[{field_name}]={region}")
 
     @staticmethod
     def _format_probe(result) -> str:

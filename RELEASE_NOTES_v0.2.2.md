@@ -1,0 +1,78 @@
+## v0.2.2 - 货车分享规则拆分与业务配置整理
+
+`v0.2.2` 重点整理了货车搜索与分享逻辑、配置结构与业务命名，并补齐了同盟群分享能力，适合作为新的公开发布版本。
+
+### 主要更新
+
+- 新增同盟群自动分享
+  - 在分享弹窗中按第二行位置选择同盟群
+  - 不依赖分享项文字内容
+  - 适配不同同盟名称
+- 货车搜索与分享逻辑拆分
+  - `truck.min_ur_shards` 仅用于搜索命中阈值
+  - 搜索命中后先决定是否提醒
+  - 若没有命中分享规则，则自动停下等待人工处理
+  - 若命中分享规则，则分享后继续搜索
+- 分享规则拆分为两套独立配置
+  - `truck.r4r5_share`
+  - `truck.alliance_share`
+  - 两者分别拥有开关与最小 `UR碎片` 条件
+  - 始终优先匹配 `R4 & R5`
+- 配置结构按业务重新分组
+  - `player_info`
+  - `startup`
+  - `alliance_help`
+  - `dig_up_treasure`
+  - `truck`
+  - `openclaw`
+- 业务命名统一
+  - 配置与代码中的“货车”统一使用 `truck`
+  - `UR碎片` 统一使用 `ur_shard`
+  - “同盟帮助”统一使用 `alliance_help`
+  - “挖掘机”统一使用 `dig_up_treasure`
+- 日志与启动脚本整理
+  - 控制台日志文件名改为 `logs/Console_latest.log`
+  - 修复启动脚本中的中文乱码
+  - 控制台用户可见提示保持中文
+- 文档同步更新
+  - README 按当前业务配置和 0.2.2 行为重写
+  - 发布目录说明同步更新
+
+### 热键说明
+
+- `F12`：暂停 / 恢复实时监控
+- `F5`：从基地重新定位车站并开始货车搜索
+- `F6`：货车搜索中暂停 / 继续，或跳过当前目标货车
+- `F2`：在鼠标当前位置开启 / 停止极速连点
+- `Ctrl-C`：退出程序
+
+### 关键配置补充
+
+- `startup.openclaw_message_enabled`
+- `player_info.enabled`
+- `alliance_help.click_cooldown_seconds`
+- `dig_up_treasure.alert_cooldown_seconds`
+- `truck.min_ur_shards`
+- `truck.r4r5_share.*`
+- `truck.alliance_share.*`
+
+### 日志
+
+- 控制台日志：
+  - `logs/Console_latest.log`
+- 事件日志：
+  - `logs/events/YYYY-MM-DD.log`
+
+### 发布内容
+
+本次发布建议包含：
+
+- `LastWarBot.exe`
+- `start.bat`
+- `config.yaml`
+- `README.md`
+- `RELEASE_NOTES_v0.2.2.md`
+- `LICENSE`
+- `images/templates/`
+- `sounds/`
+- `logs/`

@@ -1,13 +1,14 @@
 ﻿from __future__ import annotations
 
 import os
+import contextlib
 import re
 from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
 
-from .config import BASE_CLIENT_HEIGHT, BASE_CLIENT_WIDTH, OcrConfig
+from .config import BASE_CLIENT_HEIGHT, BASE_CLIENT_WIDTH, PlayerInfoConfig
 from .models import PlayerStats
 
 
@@ -37,6 +38,37 @@ RESOURCE_ICON_HSV = {
     "iron": ((95, 40, 70), (125, 255, 255)),
     "gold": ((15, 90, 120), (45, 255, 255)),
 }
+
+
+@contextlib.contextmanager
+def suppress_console_noise():
+    stdout_fd = None
+    stderr_fd = None
+    devnull = None
+    try:
+        try:
+            stdout_fd = os.dup(1)
+            stderr_fd = os.dup(2)
+            devnull = open(os.devnull, "w", encoding="utf-8", errors="ignore")
+            devnull_fd = devnull.fileno()
+            os.dup2(devnull_fd, 1)
+            os.dup2(devnull_fd, 2)
+        except OSError:
+            stdout_fd = None
+            stderr_fd = None
+            devnull = open(os.devnull, "w", encoding="utf-8", errors="ignore")
+        with contextlib.redirect_stdout(devnull):
+            with contextlib.redirect_stderr(devnull):
+                yield
+    finally:
+        if stdout_fd is not None:
+            os.dup2(stdout_fd, 1)
+            os.close(stdout_fd)
+        if stderr_fd is not None:
+            os.dup2(stderr_fd, 2)
+            os.close(stderr_fd)
+        if devnull is not None:
+            devnull.close()
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -76,12 +108,12 @@ def normalize_dialog_text(text: str) -> str:
 
 @dataclass(slots=True)
 class OcrRegionReader:
-    config: OcrConfig
+    config: PlayerInfoConfig
     _engine: object | None = field(init=False, default=None, repr=False)
     _disabled_reason: str | None = field(init=False, default=None, repr=False)
 
     def extract_stats(self, frame: np.ndarray) -> PlayerStats:
-        if not self.config.enabled or self._disabled_reason:
+        if self._disabled_reason:
             return PlayerStats()
         try:
             engine = self._get_engine()
@@ -104,8 +136,8 @@ class OcrRegionReader:
                 setattr(stats, field_name, value)
         return stats
 
-    def extract_cargo_power(self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]) -> float | None:
-        if not self.config.enabled or self._disabled_reason:
+    def extract_truck_power(self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]) -> float | None:
+        if self._disabled_reason:
             return None
         try:
             engine = self._get_engine()
@@ -114,12 +146,12 @@ class OcrRegionReader:
             return None
         best_value: float | None = None
         best_score = -1
-        for candidate_region in self._cargo_power_regions(frame, icon_top_left, icon_size):
+        for candidate_region in self._truck_power_regions(frame, icon_top_left, icon_size):
             crop = self._crop(frame, candidate_region)
             if crop.size == 0:
                 continue
             crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-            text = self._ocr_best_text(engine, crop, "cargo_power")
+            text = self._ocr_best_text(engine, crop, "truck_power")
             value = parse_numeric_text(text)
             if value is None:
                 continue
@@ -129,8 +161,8 @@ class OcrRegionReader:
                 best_value = value
         return best_value
 
-    def extract_cargo_power_from_panel(self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]) -> float | None:
-        if not self.config.enabled or self._disabled_reason:
+    def extract_truck_power_from_panel(self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]) -> float | None:
+        if self._disabled_reason:
             return None
         try:
             engine = self._get_engine()
@@ -163,7 +195,7 @@ class OcrRegionReader:
             if crop.size == 0:
                 continue
             crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-            text = self._ocr_best_text(engine, crop, "cargo_power")
+            text = self._ocr_best_text(engine, crop, "truck_power")
             value = parse_numeric_text(text)
             if value is None:
                 continue
@@ -203,7 +235,7 @@ class OcrRegionReader:
         region: tuple[int, int, int, int],
         required_tokens: tuple[str, ...],
     ) -> tuple[int, int] | None:
-        if not self.config.enabled or self._disabled_reason:
+        if self._disabled_reason:
             return None
         try:
             engine = self._get_engine()
@@ -241,10 +273,17 @@ class OcrRegionReader:
             os.environ.setdefault("FLAGS_enable_pir_api", "0")
             os.environ.setdefault("OMP_NUM_THREADS", "1")
             try:
-                from paddleocr import PaddleOCR
+                with suppress_console_noise():
+                    from paddleocr import PaddleOCR
             except ImportError as exc:
                 raise RuntimeError("paddleocr is required for OCR support") from exc
-            self._engine = PaddleOCR(use_angle_cls=False, lang=self.config.language, use_gpu=self.config.use_gpu, show_log=False)
+            with suppress_console_noise():
+                self._engine = PaddleOCR(
+                    use_angle_cls=False,
+                    lang=self.config.language,
+                    use_gpu=self.config.use_gpu,
+                    show_log=False,
+                )
         return self._engine
 
     def _crop(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> np.ndarray:
@@ -350,7 +389,7 @@ class OcrRegionReader:
         digit_bottom = top + min(crop.shape[0], y + h + h // 5)
         return self._clip_region(frame, (digit_left, digit_top, digit_right, digit_bottom))
 
-    def _cargo_power_regions(
+    def _truck_power_regions(
         self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]
     ) -> list[tuple[int, int, int, int]]:
         icon_left, icon_top = icon_top_left

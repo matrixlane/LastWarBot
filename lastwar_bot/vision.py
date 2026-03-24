@@ -10,32 +10,32 @@ from .models import DetectionResult, FrameAnalysis, ScreenState, TruckDetection
 
 
 ICON_SCALES = (0.55, 0.65, 0.75, 0.85, 1.0, 1.15, 1.3)
-EXCAVATOR_SCALES = (0.50, 0.60, 0.70, 0.80, 0.90, 1.0, 1.15, 1.3)
+DIG_UP_TREASURE_SCALES = (0.50, 0.60, 0.70, 0.80, 0.90, 1.0, 1.15, 1.3)
 STATE_SCALES = (0.7, 0.8, 0.9, 1.0, 1.1, 1.2)
 STATION_SCALES = (0.45, 0.55, 0.65, 0.75, 0.85, 1.0, 1.15, 1.3)
 STATION_ZOOMED_OUT_SCALES = (0.85, 0.95, 1.0, 1.05, 1.15)
 REFRESH_BUTTON_SCALES = (0.9, 1.0, 1.1)
-UR_FRAGMENT_SCALES = (0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3)
-CARGO_POWER_ICON_SCALES = (0.85, 0.95, 1.0, 1.05, 1.15)
+UR_SHARD_SCALES = (0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3)
+TRUCK_POWER_ICON_SCALES = (0.85, 0.95, 1.0, 1.05, 1.15)
 SCREEN_STATE_FALLBACK_THRESHOLD = 0.40
 SCREEN_STATE_FALLBACK_MARGIN = 0.02
 STATION_ZOOMED_OUT_FALLBACK_THRESHOLD = 0.50
 REFRESH_BUTTON_FALLBACK_THRESHOLD = 0.45
-UR_FRAGMENT_FALLBACK_THRESHOLD = 0.68
-EXCAVATOR_PROBE_THRESHOLD = 0.52
+UR_SHARD_FALLBACK_THRESHOLD = 0.68
+DIG_UP_TREASURE_PROBE_THRESHOLD = 0.52
 TRUCK_SEARCH_REGION = (0.20, 0.10, 0.72, 0.86)
-UR_FRAGMENT_PANEL_REGION = (0.04, 0.70, 0.94, 0.985)
-CARGO_PANEL_LEFT_SEARCH = (0.18, 0.46)
-CARGO_PANEL_RIGHT_SEARCH = (0.54, 0.82)
-CARGO_PANEL_INSET_X = 6
-CARGO_PANEL_TOP_INSET = 8
-CARGO_PANEL_BOTTOM_INSET = 80
-CARGO_TRUCK_PANEL_REGION = (0.06, 0.16, 0.82, 0.94)
-CARGO_REFRESH_BLUE_LOWER = (85, 80, 120)
-CARGO_REFRESH_BLUE_UPPER = (125, 255, 255)
-CARGO_REFRESH_BLUE_MIN_AREA = 300
-CARGO_REFRESH_SEARCH_WIDTH = 180
-CARGO_REFRESH_SEARCH_HEIGHT = 180
+UR_SHARD_PANEL_REGION = (0.04, 0.70, 0.94, 0.985)
+TRUCK_PANEL_LEFT_SEARCH = (0.18, 0.46)
+TRUCK_PANEL_RIGHT_SEARCH = (0.54, 0.82)
+TRUCK_PANEL_INSET_X = 6
+TRUCK_PANEL_TOP_INSET = 8
+TRUCK_PANEL_BOTTOM_INSET = 80
+TRUCK_LIST_PANEL_REGION = (0.06, 0.16, 0.82, 0.94)
+TRUCK_REFRESH_BLUE_LOWER = (85, 80, 120)
+TRUCK_REFRESH_BLUE_UPPER = (125, 255, 255)
+TRUCK_REFRESH_BLUE_MIN_AREA = 300
+TRUCK_REFRESH_SEARCH_WIDTH = 180
+TRUCK_REFRESH_SEARCH_HEIGHT = 180
 SHARE_BUTTON_BLUE_LOWER = (85, 80, 120)
 SHARE_BUTTON_BLUE_UPPER = (125, 255, 255)
 SHARE_BUTTON_MIN_AREA = 700
@@ -43,14 +43,16 @@ SHARE_DIALOG_REGION = (0.31, 0.23, 0.68, 0.80)
 SHARE_DIALOG_LIST_REGION = (0.04, 0.13, 0.96, 0.96)
 SHARE_CONFIRM_DIALOG_REGION = (0.08, 0.13, 0.92, 0.82)
 SHARE_CONFIRM_BUTTON_REGION = (0.50, 0.58, 0.93, 0.94)
-EXCAVATOR_YELLOW_LOWER = (12, 80, 130)
-EXCAVATOR_YELLOW_UPPER = (45, 255, 255)
-EXCAVATOR_ORANGE_LOWER = (5, 90, 90)
-EXCAVATOR_ORANGE_UPPER = (30, 255, 255)
-EXCAVATOR_COLOR_MIN_AREA = 900
-EXCAVATOR_MIN_SIZE = 26
-EXCAVATOR_MAX_SIZE = 160
-EXCAVATOR_PROBE_DISTANCE_FACTOR = 0.45
+SHARE_OPTION_FIRST_ROW_CENTER_RATIO = 0.14
+SHARE_OPTION_ROW_STEP_RATIO = 0.225
+DIG_UP_TREASURE_YELLOW_LOWER = (12, 80, 130)
+DIG_UP_TREASURE_YELLOW_UPPER = (45, 255, 255)
+DIG_UP_TREASURE_ORANGE_LOWER = (5, 90, 90)
+DIG_UP_TREASURE_ORANGE_UPPER = (30, 255, 255)
+DIG_UP_TREASURE_COLOR_MIN_AREA = 900
+DIG_UP_TREASURE_MIN_SIZE = 26
+DIG_UP_TREASURE_MAX_SIZE = 160
+DIG_UP_TREASURE_PROBE_DISTANCE_FACTOR = 0.45
 TRUCK_COLOR_RULES = {
     "purple": {
         "lower": (135, 40, 60),
@@ -77,14 +79,14 @@ TRUCK_COLOR_RULES = {
 TEMPLATE_FILES = {
     "base": "\u57fa\u5730.png",
     "world": "\u4e16\u754c.png",
-    "handshake": "\u63e1\u624b.png",
-    "excavator": "\u6316\u6398\u673a.png",
+    "alliance_help_icon": "\u63e1\u624b.png",
+    "dig_up_treasure": "\u6316\u6398\u673a.png",
     "station": "\u8f66\u7ad9.png",
     "station_zoomed_out_icon": "\u8f66\u7ad9\u56fe\u6807-\u7f29\u5c0f.png",
     "station_zoomed_out_full": "\u8f66\u7ad9-\u7f29\u5c0f.png",
-    "ur_fragment": "UR\u788e\u7247.png",
-    "cargo_refresh_button": "\u8d27\u8f66\u5237\u65b0\u6309\u94ae.png",
-    "cargo_power_icon": "\u6218\u529b.png",
+    "ur_shard": "UR\u788e\u7247.png",
+    "truck_refresh_button": "\u8d27\u8f66\u5237\u65b0\u6309\u94ae.png",
+    "truck_power_icon": "\u6218\u529b.png",
 }
 
 
@@ -107,24 +109,24 @@ class TemplateMatcher:
         self.template_gray = {name: self._to_gray(image) for name, image in self.templates.items()}
         self.template_edge = {name: self._to_edge(gray) for name, gray in self.template_gray.items()}
 
-    def analyze(self, frame: np.ndarray, detect_cargo: bool = False) -> FrameAnalysis:
+    def analyze(self, frame: np.ndarray, detect_trucks: bool = False) -> FrameAnalysis:
         frame_gray = self._to_gray(frame)
         state, state_detection = self.detect_screen_state(frame_gray)
-        handshake = self._find_best_in_gray(
+        alliance_help = self._find_best_in_gray(
             frame_gray,
-            "handshake",
-            self.config.thresholds.handshake,
-            roi=self.config.regions["handshake"],
+            "alliance_help_icon",
+            self.config.thresholds.alliance_help_icon,
+            roi=self.config.regions["alliance_help_icon"],
             multi_scale=True,
         )
-        excavator = self.find_excavator(frame)
-        cargo_trucks = self.detect_cargo_trucks(frame) if detect_cargo else []
+        dig_up_treasure = self.find_dig_up_treasure(frame)
+        trucks = self.detect_trucks(frame) if detect_trucks else []
         return FrameAnalysis(
             screen_state=state,
             state_detection=state_detection,
-            handshake=handshake,
-            excavator=excavator,
-            cargo_trucks=cargo_trucks,
+            alliance_help=alliance_help,
+            dig_up_treasure=dig_up_treasure,
+            trucks=trucks,
         )
 
     def detect_screen_state(self, frame: np.ndarray) -> tuple[ScreenState, DetectionResult | None]:
@@ -174,17 +176,17 @@ class TemplateMatcher:
             return ScreenState.WORLD, base_probe
         return ScreenState.OTHER, None
 
-    def detect_cargo_trucks(self, frame: np.ndarray, relax_level: int = 0) -> list[TruckDetection]:
+    def detect_trucks(self, frame: np.ndarray, relax_level: int = 0) -> list[TruckDetection]:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        panel_rect = self.detect_cargo_panel(frame)
+        panel_rect = self.detect_truck_panel(frame)
         if panel_rect is not None:
             left, top, right, bottom = panel_rect
             panel_width = right - left
             panel_height = bottom - top
-            inner_left = left + int(panel_width * CARGO_TRUCK_PANEL_REGION[0])
-            inner_top = top + int(panel_height * CARGO_TRUCK_PANEL_REGION[1])
-            inner_right = left + int(panel_width * CARGO_TRUCK_PANEL_REGION[2])
-            inner_bottom = top + int(panel_height * CARGO_TRUCK_PANEL_REGION[3])
+            inner_left = left + int(panel_width * TRUCK_LIST_PANEL_REGION[0])
+            inner_top = top + int(panel_height * TRUCK_LIST_PANEL_REGION[1])
+            inner_right = left + int(panel_width * TRUCK_LIST_PANEL_REGION[2])
+            inner_bottom = top + int(panel_height * TRUCK_LIST_PANEL_REGION[3])
             left, top, right, bottom = inner_left, inner_top, inner_right, inner_bottom
             roi_hsv = hsv[top:bottom, left:right]
             roi_origin = (left, top)
@@ -284,13 +286,13 @@ class TemplateMatcher:
             return best_probe
         return None
 
-    def find_excavator(self, frame: np.ndarray) -> DetectionResult | None:
+    def find_dig_up_treasure(self, frame: np.ndarray) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
-        roi = self.config.regions["excavator"]
-        threshold = self.config.thresholds.excavator
+        roi = self.config.regions["dig_up_treasure"]
+        threshold = self.config.thresholds.dig_up_treasure
         direct = self._find_best_in_gray(
             frame_gray,
-            "excavator",
+            "dig_up_treasure",
             threshold,
             roi=roi,
             multi_scale=True,
@@ -301,7 +303,7 @@ class TemplateMatcher:
         edge_threshold = max(0.52, threshold - 0.06)
         edge = self._find_best_in_edge(
             self._to_edge(frame_gray),
-            "excavator",
+            "dig_up_treasure",
             edge_threshold,
             roi=roi,
             multi_scale=True,
@@ -310,12 +312,12 @@ class TemplateMatcher:
             return edge
 
         probe = self._pick_stronger_detection(
-            self._find_best_in_gray(frame_gray, "excavator", -1.0, roi=roi, multi_scale=True),
-            self._find_best_in_edge(self._to_edge(frame_gray), "excavator", -1.0, roi=roi, multi_scale=True),
+            self._find_best_in_gray(frame_gray, "dig_up_treasure", -1.0, roi=roi, multi_scale=True),
+            self._find_best_in_edge(self._to_edge(frame_gray), "dig_up_treasure", -1.0, roi=roi, multi_scale=True),
         )
-        color = self._find_excavator_color_marker(frame, roi)
+        color = self._find_dig_up_treasure_color_marker(frame, roi)
         if color is None:
-            if probe is not None and probe.confidence >= EXCAVATOR_PROBE_THRESHOLD:
+            if probe is not None and probe.confidence >= DIG_UP_TREASURE_PROBE_THRESHOLD:
                 return probe
             return None
 
@@ -323,36 +325,36 @@ class TemplateMatcher:
             return None
 
         distance = float(np.hypot(probe.center[0] - color.center[0], probe.center[1] - color.center[1]))
-        max_distance = max(18.0, max(color.size) * EXCAVATOR_PROBE_DISTANCE_FACTOR)
+        max_distance = max(18.0, max(color.size) * DIG_UP_TREASURE_PROBE_DISTANCE_FACTOR)
         if distance <= max_distance:
             return DetectionResult(
-                template_name="excavator",
+                template_name="dig_up_treasure",
                 confidence=max(probe.confidence, color.confidence),
                 center=color.center,
                 top_left=color.top_left,
                 size=color.size,
                 roi=color.roi,
         )
-        if probe.confidence >= EXCAVATOR_PROBE_THRESHOLD:
+        if probe.confidence >= DIG_UP_TREASURE_PROBE_THRESHOLD:
             return probe
         return None
 
-    def find_ur_fragments(self, frame: np.ndarray) -> list[DetectionResult]:
+    def find_ur_shards(self, frame: np.ndarray) -> list[DetectionResult]:
         frame_gray = self._to_gray(frame)
-        roi = self.config.regions["ur_fragment"]
-        panel_rect = self.detect_cargo_panel(frame)
+        roi = self.config.regions["ur_shard"]
+        panel_rect = self.detect_truck_panel(frame)
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(
                 frame_gray.shape[1],
                 frame_gray.shape[0],
                 panel_rect,
-                UR_FRAGMENT_PANEL_REGION,
+                UR_SHARD_PANEL_REGION,
             )
 
         results = self._find_all_in_gray(
             frame_gray,
-            "ur_fragment",
-            self.config.thresholds.ur_fragment,
+            "ur_shard",
+            self.config.thresholds.ur_shard,
             roi=roi,
             multi_scale=True,
             dedupe_distance=12,
@@ -360,13 +362,13 @@ class TemplateMatcher:
         if len(results) >= 2:
             return results
 
-        relaxed_threshold = min(self.config.thresholds.ur_fragment, UR_FRAGMENT_FALLBACK_THRESHOLD)
-        if relaxed_threshold >= self.config.thresholds.ur_fragment:
+        relaxed_threshold = min(self.config.thresholds.ur_shard, UR_SHARD_FALLBACK_THRESHOLD)
+        if relaxed_threshold >= self.config.thresholds.ur_shard:
             return results
 
         relaxed_results = self._find_all_in_gray(
             frame_gray,
-            "ur_fragment",
+            "ur_shard",
             relaxed_threshold,
             roi=roi,
             multi_scale=True,
@@ -374,16 +376,16 @@ class TemplateMatcher:
         )
         return relaxed_results if len(relaxed_results) > len(results) else results
 
-    def find_cargo_refresh_button(self, frame: np.ndarray) -> DetectionResult | None:
+    def find_truck_refresh_button(self, frame: np.ndarray) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
-        panel_rect = self.detect_cargo_panel(frame)
-        roi = self.config.regions["cargo_refresh_button"]
+        panel_rect = self.detect_truck_panel(frame)
+        roi = self.config.regions["truck_refresh_button"]
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
         result = self._find_best_in_gray(
             frame_gray,
-            "cargo_refresh_button",
-            self.config.thresholds.cargo_refresh_button,
+            "truck_refresh_button",
+            self.config.thresholds.truck_refresh_button,
             roi=roi,
             multi_scale=True,
         )
@@ -391,20 +393,20 @@ class TemplateMatcher:
             return result
         probe = self._find_best_in_gray(
             frame_gray,
-            "cargo_refresh_button",
+            "truck_refresh_button",
             -1.0,
             roi=roi,
             multi_scale=True,
         )
         if probe is not None and probe.confidence >= REFRESH_BUTTON_FALLBACK_THRESHOLD:
             return probe
-        blue_result = self._find_cargo_refresh_button_blue(frame, panel_rect)
+        blue_result = self._find_truck_refresh_button_blue(frame, panel_rect)
         if blue_result is not None:
             return blue_result
         return None
 
-    def find_cargo_share_button(self, frame: np.ndarray) -> DetectionResult | None:
-        panel_rect = self.detect_cargo_panel(frame)
+    def find_truck_share_button(self, frame: np.ndarray) -> DetectionResult | None:
+        panel_rect = self.detect_truck_panel(frame)
         if panel_rect is None:
             return None
         left, top, right, bottom = panel_rect
@@ -416,7 +418,7 @@ class TemplateMatcher:
             left + int(panel_width * 0.90),
             top + int(panel_height * 0.98),
         )
-        return self._find_blue_button_in_rect(frame, search_rect, "cargo_share_button", SHARE_BUTTON_MIN_AREA)
+        return self._find_blue_button_in_rect(frame, search_rect, "truck_share_button", SHARE_BUTTON_MIN_AREA)
 
     def infer_share_dialog_rect(self, frame: np.ndarray) -> tuple[int, int, int, int]:
         height, width = frame.shape[:2]
@@ -431,6 +433,18 @@ class TemplateMatcher:
         dialog = self.infer_share_dialog_rect(frame)
         return self._rect_within(dialog, SHARE_DIALOG_LIST_REGION)
 
+    def infer_share_option_center(self, frame: np.ndarray, row_index: int) -> tuple[int, int]:
+        left, top, right, bottom = self.infer_share_list_region(frame)
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        clamped_row_index = max(0, row_index)
+        center_x = left + width // 2
+        center_y = top + int(
+            height * (SHARE_OPTION_FIRST_ROW_CENTER_RATIO + SHARE_OPTION_ROW_STEP_RATIO * clamped_row_index)
+        )
+        center_y = max(top + 1, min(bottom - 1, center_y))
+        return center_x, center_y
+
     def infer_share_confirm_dialog_rect(self, frame: np.ndarray) -> tuple[int, int, int, int]:
         dialog = self.infer_share_dialog_rect(frame)
         return self._rect_within(dialog, SHARE_CONFIRM_DIALOG_REGION)
@@ -440,7 +454,7 @@ class TemplateMatcher:
         search_rect = self._rect_within(dialog_rect, SHARE_CONFIRM_BUTTON_REGION)
         return self._find_blue_button_in_rect(frame, search_rect, "share_confirm_button", SHARE_BUTTON_MIN_AREA)
 
-    def _find_excavator_color_marker(
+    def _find_dig_up_treasure_color_marker(
         self,
         frame: np.ndarray,
         roi: tuple[float, float, float, float],
@@ -449,19 +463,19 @@ class TemplateMatcher:
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
         yellow_mask = cv2.inRange(
             hsv,
-            np.array(EXCAVATOR_YELLOW_LOWER, dtype=np.uint8),
-            np.array(EXCAVATOR_YELLOW_UPPER, dtype=np.uint8),
+            np.array(DIG_UP_TREASURE_YELLOW_LOWER, dtype=np.uint8),
+            np.array(DIG_UP_TREASURE_YELLOW_UPPER, dtype=np.uint8),
         )
         yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
         yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, np.ones((7, 7), dtype=np.uint8))
         orange_mask = cv2.inRange(
             hsv,
-            np.array(EXCAVATOR_ORANGE_LOWER, dtype=np.uint8),
-            np.array(EXCAVATOR_ORANGE_UPPER, dtype=np.uint8),
+            np.array(DIG_UP_TREASURE_ORANGE_LOWER, dtype=np.uint8),
+            np.array(DIG_UP_TREASURE_ORANGE_UPPER, dtype=np.uint8),
         )
         contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         frame_scale = self._frame_scale(frame)
-        min_area = EXCAVATOR_COLOR_MIN_AREA * frame_scale * frame_scale
+        min_area = DIG_UP_TREASURE_COLOR_MIN_AREA * frame_scale * frame_scale
         best: DetectionResult | None = None
         best_score = -1.0
         roi_height, roi_width = roi_bgr.shape[:2]
@@ -472,8 +486,8 @@ class TemplateMatcher:
             area = float(cv2.contourArea(contour))
             if area < min_area:
                 continue
-            min_size = int(round(EXCAVATOR_MIN_SIZE * frame_scale))
-            max_size = int(round(EXCAVATOR_MAX_SIZE * frame_scale))
+            min_size = int(round(DIG_UP_TREASURE_MIN_SIZE * frame_scale))
+            max_size = int(round(DIG_UP_TREASURE_MAX_SIZE * frame_scale))
             if w < min_size or h < min_size:
                 continue
             if w > max_size or h > max_size:
@@ -494,7 +508,7 @@ class TemplateMatcher:
             best_score = score
             confidence = min(0.95, 0.35 + area / 6000.0 + orange_pixels / 2500.0)
             best = DetectionResult(
-                template_name="excavator_color",
+                template_name="dig_up_treasure_color",
                 confidence=confidence,
                 center=center,
                 top_left=(abs_x, abs_y),
@@ -508,25 +522,25 @@ class TemplateMatcher:
             )
         return best
 
-    def _find_cargo_refresh_button_blue(
+    def _find_truck_refresh_button_blue(
         self, frame: np.ndarray, panel_rect: tuple[int, int, int, int] | None
     ) -> DetectionResult | None:
         if panel_rect is None:
             return None
         frame_height, frame_width = frame.shape[:2]
         panel_left, panel_top, panel_right, panel_bottom = panel_rect
-        search_left = max(panel_left, panel_right - CARGO_REFRESH_SEARCH_WIDTH)
+        search_left = max(panel_left, panel_right - TRUCK_REFRESH_SEARCH_WIDTH)
         search_top = max(panel_top, panel_top)
         search_right = min(frame_width, panel_right)
-        search_bottom = min(frame_height, panel_top + CARGO_REFRESH_SEARCH_HEIGHT)
+        search_bottom = min(frame_height, panel_top + TRUCK_REFRESH_SEARCH_HEIGHT)
         if search_right <= search_left or search_bottom <= search_top:
             return None
         roi = frame[search_top:search_bottom, search_left:search_right]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(
             hsv,
-            np.array(CARGO_REFRESH_BLUE_LOWER, dtype=np.uint8),
-            np.array(CARGO_REFRESH_BLUE_UPPER, dtype=np.uint8),
+            np.array(TRUCK_REFRESH_BLUE_LOWER, dtype=np.uint8),
+            np.array(TRUCK_REFRESH_BLUE_UPPER, dtype=np.uint8),
         )
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), dtype=np.uint8))
@@ -536,7 +550,7 @@ class TemplateMatcher:
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
             area = float(cv2.contourArea(contour))
-            if area < CARGO_REFRESH_BLUE_MIN_AREA:
+            if area < TRUCK_REFRESH_BLUE_MIN_AREA:
                 continue
             if w < 18 or h < 18:
                 continue
@@ -552,7 +566,7 @@ class TemplateMatcher:
                 continue
             best_score = score
             best = DetectionResult(
-                template_name="cargo_refresh_button_blue",
+                template_name="truck_refresh_button_blue",
                 confidence=min(0.99, area / 2000.0),
                 center=center,
                 top_left=(abs_x, abs_y),
@@ -614,7 +628,7 @@ class TemplateMatcher:
             )
         return best
 
-    def detect_cargo_panel(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+    def detect_truck_panel(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
         frame_gray = self._to_gray(frame)
         height, width = frame_gray.shape[:2]
         band_top = height // 12
@@ -624,32 +638,32 @@ class TemplateMatcher:
         if width >= 3:
             score[1:-1] = np.mean(np.abs(band[:, 2:].astype(np.int16) - band[:, :-2].astype(np.int16)), axis=0)
 
-        left_start = int(width * CARGO_PANEL_LEFT_SEARCH[0])
-        left_end = max(left_start + 1, int(width * CARGO_PANEL_LEFT_SEARCH[1]))
-        right_start = int(width * CARGO_PANEL_RIGHT_SEARCH[0])
-        right_end = max(right_start + 1, int(width * CARGO_PANEL_RIGHT_SEARCH[1]))
+        left_start = int(width * TRUCK_PANEL_LEFT_SEARCH[0])
+        left_end = max(left_start + 1, int(width * TRUCK_PANEL_LEFT_SEARCH[1]))
+        right_start = int(width * TRUCK_PANEL_RIGHT_SEARCH[0])
+        right_end = max(right_start + 1, int(width * TRUCK_PANEL_RIGHT_SEARCH[1]))
         left_idx = left_start + int(np.argmax(score[left_start:left_end]))
         right_idx = right_start + int(np.argmax(score[right_start:right_end]))
 
         if right_idx - left_idx < max(260, width // 5):
             return None
-        left = max(0, left_idx + CARGO_PANEL_INSET_X)
-        right = min(width, right_idx - CARGO_PANEL_INSET_X)
-        top = min(height - 1, CARGO_PANEL_TOP_INSET)
-        bottom = max(top + 1, height - CARGO_PANEL_BOTTOM_INSET)
+        left = max(0, left_idx + TRUCK_PANEL_INSET_X)
+        right = min(width, right_idx - TRUCK_PANEL_INSET_X)
+        top = min(height - 1, TRUCK_PANEL_TOP_INSET)
+        bottom = max(top + 1, height - TRUCK_PANEL_BOTTOM_INSET)
         return (left, top, right, bottom)
 
-    def find_cargo_power_icon(
+    def find_truck_power_icon(
         self, frame: np.ndarray, panel_rect: tuple[int, int, int, int] | None = None
     ) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
-        roi = self.config.regions["cargo_power_icon"]
+        roi = self.config.regions["truck_power_icon"]
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
         result = self._find_best_in_gray(
             frame_gray,
-            "cargo_power_icon",
-            self.config.thresholds.cargo_power_icon,
+            "truck_power_icon",
+            self.config.thresholds.truck_power_icon,
             roi=roi,
             multi_scale=True,
         )
@@ -657,7 +671,7 @@ class TemplateMatcher:
             return result
         probe = self._find_best_in_gray(
             frame_gray,
-            "cargo_power_icon",
+            "truck_power_icon",
             -1.0,
             roi=roi,
             multi_scale=True,
@@ -693,7 +707,7 @@ class TemplateMatcher:
         )
         if direct is not None:
             return direct
-        if template_name != "excavator":
+        if template_name != "dig_up_treasure":
             return None
         edge_threshold = max(0.52, threshold - 0.06)
         return self._find_best_in_edge(
@@ -913,16 +927,16 @@ class TemplateMatcher:
             scales = STATION_SCALES
         elif template_name in {"station_zoomed_out_icon", "station_zoomed_out_full"}:
             scales = STATION_ZOOMED_OUT_SCALES
-        elif template_name == "handshake":
+        elif template_name == "alliance_help_icon":
             scales = ICON_SCALES
-        elif template_name == "excavator":
-            scales = EXCAVATOR_SCALES
-        elif template_name == "cargo_refresh_button":
+        elif template_name == "dig_up_treasure":
+            scales = DIG_UP_TREASURE_SCALES
+        elif template_name == "truck_refresh_button":
             scales = REFRESH_BUTTON_SCALES
-        elif template_name == "ur_fragment":
-            scales = UR_FRAGMENT_SCALES
-        elif template_name == "cargo_power_icon":
-            scales = CARGO_POWER_ICON_SCALES
+        elif template_name == "ur_shard":
+            scales = UR_SHARD_SCALES
+        elif template_name == "truck_power_icon":
+            scales = TRUCK_POWER_ICON_SCALES
         else:
             scales = (1.0,)
         if not self.config.auto_scale_templates:

@@ -47,13 +47,13 @@ class PlayerStats:
 
     def summary(self) -> str:
         ordered = {
-            "\u7b49\u7ea7": self.level,
-            "\u4f53\u529b": self.stamina,
-            "\u7cae\u98df": self.food,
-            "\u94c1\u77ff": self.iron,
-            "\u91d1\u5e01": self.gold,
-            "\u6218\u529b": self.power,
-            "\u94bb\u77f3": self.diamonds,
+            "等级": self.level,
+            "体力": self.stamina,
+            "粮食": self.food,
+            "铁矿": self.iron,
+            "金币": self.gold,
+            "战力": self.power,
+            "钻石": self.diamonds,
         }
         return " ".join(f"{key}={self._format_value(key, value)}" for key, value in ordered.items())
 
@@ -61,9 +61,9 @@ class PlayerStats:
     def _format_value(key: str, value: int | float | None) -> str:
         if value is None:
             return "-"
-        if key in {"\u7b49\u7ea7", "\u4f53\u529b", "\u94bb\u77f3"}:
+        if key in {"等级", "体力", "钻石"}:
             return str(int(value))
-        if key == "\u6218\u529b":
+        if key == "战力":
             return str(int(round(value)))
         return PlayerStats._humanize_number(float(value))
 
@@ -84,16 +84,16 @@ class PlayerStats:
 class FrameAnalysis:
     screen_state: ScreenState
     state_detection: DetectionResult | None = None
-    handshake: DetectionResult | None = None
-    excavator: DetectionResult | None = None
-    cargo_trucks: list[TruckDetection] = field(default_factory=list)
+    alliance_help: DetectionResult | None = None
+    dig_up_treasure: DetectionResult | None = None
+    trucks: list[TruckDetection] = field(default_factory=list)
     stats: PlayerStats = field(default_factory=PlayerStats)
     stats_refreshed: bool = False
 
     def visible_templates(self) -> list[str]:
         visible: list[str] = []
-        if self.handshake:
-            visible.append("\u63e1\u624b")
-        if self.excavator:
-            visible.append("\u6316\u6398\u673a")
+        if self.alliance_help:
+            visible.append("Alliance Help")
+        if self.dig_up_treasure:
+            visible.append("DigUpTreasure")
         return visible
