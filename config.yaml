@@ -98,15 +98,15 @@ cargo:
   ur_fragment_alert_count: 2
   auto_share_enabled: true
   max_refresh_attempts: 9999
-  inspection_wait_seconds: 0.3
-  ur_confirm_interval_seconds: 0.3
+  inspection_wait_seconds: 0.2
+  ur_confirm_interval_seconds: 0.2
   share_wait_seconds: 0.5
   share_confirm_wait_seconds: 0.5
-  refresh_wait_seconds: 1.2
+  refresh_wait_seconds: 1.0
   enter_wait_seconds: 2
   enter_retry_count: 2
-  sample_attempts: 2
-  sample_interval_seconds: 0.3
+  sample_attempts: 1
+  sample_interval_seconds: 0.2
   empty_result_retry_rounds: 2
   refresh_button_x_ratio: 0.6404
   refresh_button_y_ratio: 0.0455
