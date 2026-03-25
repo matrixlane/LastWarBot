@@ -33,7 +33,52 @@
 - 日志与启动脚本整理
   - 控制台日志文件名改为 `logs/Console_latest.log`
   - 修复启动脚本中的中文乱码
+  - 修复批处理脚本在 Windows `cmd.exe` 下因换行格式导致的启动异常
   - 控制台用户可见提示保持中文
+- OCR 与识别修正
+  - 收紧挖掘机放行条件，减少误报
+  - 挖掘机相关控制台提示改回中文
+  - 玩家信息中的战力日志改为千分位显示
+  - 资源 OCR 增强同一行分段文本合并，改善 `2.4M` 这类格式识别
 - 文档同步更新
   - README 按当前业务配置和 0.2.2 行为重写
   - 发布目录说明同步更新
+
+### 热键说明
+
+- `F12`：暂停 / 恢复实时监控
+- `F5`：从基地重新定位车站并开始货车搜索
+- `F6`：货车搜索中暂停 / 继续，或跳过当前目标货车
+- `F2`：在鼠标当前位置开启 / 停止极速连点
+- `Ctrl-C`：退出程序
+
+### 关键配置补充
+
+- `startup.openclaw_message_enabled`
+- `player_info.enabled`
+- `alliance_help.click_cooldown_seconds`
+- `dig_up_treasure.alert_cooldown_seconds`
+- `truck.min_ur_shards`
+- `truck.r4r5_share.*`
+- `truck.alliance_share.*`
+
+### 日志
+
+- 控制台日志：
+  - `logs/Console_latest.log`
+- 事件日志：
+  - `logs/events/YYYY-MM-DD.log`
+
+### 发布内容
+
+本次发布建议包含：
+
+- `LastWarBot.exe`
+- `start.bat`
+- `config.yaml`
+- `README.md`
+- `RELEASE_NOTES_v0.2.2.md`
+- `LICENSE`
+- `images/templates/`
+- `sounds/`
+- `logs/`

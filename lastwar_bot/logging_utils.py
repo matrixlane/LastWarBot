@@ -6,7 +6,7 @@ from .models import FrameAnalysis
 
 
 ACTION_LABELS = {
-    "notify:DigUpTreasure": "DigUpTreasure",
+    "notify:DigUpTreasure": "挖掘机",
 }
 
 TRUCK_LABELS = {
@@ -32,7 +32,7 @@ def format_cycle_summary(analysis: FrameAnalysis, actions: list[str]) -> str:
 
     dig_up_treasure_count = _extract_dig_up_treasure_count(actions)
     if dig_up_treasure_count is not None:
-        lines.append(f"{prefix} 发现DigUpTreasure({dig_up_treasure_count})")
+        lines.append(f"{prefix} 发现挖掘机({dig_up_treasure_count})")
 
     lines.extend(_format_truck_lines(prefix, analysis))
     return "\n".join(lines)

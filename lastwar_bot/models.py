@@ -64,7 +64,7 @@ class PlayerStats:
         if key in {"等级", "体力", "钻石"}:
             return str(int(value))
         if key == "战力":
-            return str(int(round(value)))
+            return f"{int(round(value)):,}"
         return PlayerStats._humanize_number(float(value))
 
     @staticmethod

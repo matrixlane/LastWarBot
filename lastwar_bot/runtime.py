@@ -1122,7 +1122,7 @@ class LastWarBot:
         width, height = self.window_manager.get_client_size(hwnd)
         print(
             f"[{timestamp()}] 调试：客户区={width}x{height} 地图={analysis.screen_state.value} "
-            f"Alliance Help图标={'是' if analysis.alliance_help else '否'} DigUpTreasure图标={'是' if analysis.dig_up_treasure else '否'} "
+            f"同盟帮助图标={'是' if analysis.alliance_help else '否'} 挖掘机图标={'是' if analysis.dig_up_treasure else '否'} "
             f"货车数量={len(analysis.trucks)}"
         )
 

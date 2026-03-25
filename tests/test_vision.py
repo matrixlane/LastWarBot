@@ -2,9 +2,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from lastwar_bot.config import MatchingConfig
-from lastwar_bot.models import ScreenState
+from lastwar_bot.logging_utils import format_cycle_summary
+from lastwar_bot.models import DetectionResult, FrameAnalysis, ScreenState
 from lastwar_bot.vision import TemplateMatcher, load_image_bgr
 
 
@@ -35,6 +37,17 @@ def _paste_rotated(template_name: str, location: tuple[int, int], angle: float, 
     x, y = location
     frame[y : y + h, x : x + w] = rotated
     return frame
+
+
+def _detection(template_name: str, confidence: float, center: tuple[int, int] = (960, 820)) -> DetectionResult:
+    return DetectionResult(
+        template_name=template_name,
+        confidence=confidence,
+        center=center,
+        top_left=(center[0] - 20, center[1] - 20),
+        size=(40, 40),
+        roi=(0, 0, 1920, 1080),
+    )
 
 
 def test_detect_base_screen_state_from_bottom_right_quarter():
@@ -384,3 +397,26 @@ def test_infer_share_option_center_tracks_row_index():
     assert second_row[0] == list_left + (list_right - list_left) // 2
     assert third_row[0] == second_row[0]
     assert list_top < second_row[1] < third_row[1] < list_bottom
+
+
+def test_find_dig_up_treasure_does_not_accept_low_confidence_probe_without_color(monkeypatch: pytest.MonkeyPatch):
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    weak_probe = _detection("dig_up_treasure", 0.63)
+
+    monkeypatch.setattr(matcher, "_find_best_in_gray", lambda *args, **kwargs: weak_probe)
+    monkeypatch.setattr(matcher, "_find_best_in_edge", lambda *args, **kwargs: None)
+    monkeypatch.setattr(matcher, "_find_dig_up_treasure_color_marker", lambda *args, **kwargs: None)
+
+    result = matcher.find_dig_up_treasure(frame)
+
+    assert result is None
+
+
+def test_format_cycle_summary_uses_chinese_dig_up_treasure_label():
+    analysis = FrameAnalysis(screen_state=ScreenState.WORLD)
+
+    summary = format_cycle_summary(analysis, ["notify:DigUpTreasure:3"])
+
+    assert "发现挖掘机(3)" in summary
+    assert "DigUpTreasure" not in summary

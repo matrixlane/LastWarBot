@@ -53,6 +53,8 @@ DIG_UP_TREASURE_COLOR_MIN_AREA = 900
 DIG_UP_TREASURE_MIN_SIZE = 26
 DIG_UP_TREASURE_MAX_SIZE = 160
 DIG_UP_TREASURE_PROBE_DISTANCE_FACTOR = 0.45
+DIG_UP_TREASURE_STRONG_TEMPLATE_MARGIN = 0.10
+DIG_UP_TREASURE_STRONG_EDGE_MARGIN = 0.08
 TRUCK_COLOR_RULES = {
     "purple": {
         "lower": (135, 40, 60),
@@ -297,7 +299,8 @@ class TemplateMatcher:
             roi=roi,
             multi_scale=True,
         )
-        if direct is not None:
+        strong_direct_threshold = max(0.72, threshold + DIG_UP_TREASURE_STRONG_TEMPLATE_MARGIN)
+        if direct is not None and direct.confidence >= strong_direct_threshold:
             return direct
 
         edge_threshold = max(0.52, threshold - 0.06)
@@ -308,7 +311,8 @@ class TemplateMatcher:
             roi=roi,
             multi_scale=True,
         )
-        if edge is not None:
+        strong_edge_threshold = max(0.68, edge_threshold + DIG_UP_TREASURE_STRONG_EDGE_MARGIN)
+        if edge is not None and edge.confidence >= strong_edge_threshold:
             return edge
 
         probe = self._pick_stronger_detection(
@@ -316,12 +320,7 @@ class TemplateMatcher:
             self._find_best_in_edge(self._to_edge(frame_gray), "dig_up_treasure", -1.0, roi=roi, multi_scale=True),
         )
         color = self._find_dig_up_treasure_color_marker(frame, roi)
-        if color is None:
-            if probe is not None and probe.confidence >= DIG_UP_TREASURE_PROBE_THRESHOLD:
-                return probe
-            return None
-
-        if probe is None:
+        if color is None or probe is None or probe.confidence < DIG_UP_TREASURE_PROBE_THRESHOLD:
             return None
 
         distance = float(np.hypot(probe.center[0] - color.center[0], probe.center[1] - color.center[1]))
@@ -334,9 +333,7 @@ class TemplateMatcher:
                 top_left=color.top_left,
                 size=color.size,
                 roi=color.roi,
-        )
-        if probe.confidence >= DIG_UP_TREASURE_PROBE_THRESHOLD:
-            return probe
+            )
         return None
 
     def find_ur_shards(self, frame: np.ndarray) -> list[DetectionResult]:

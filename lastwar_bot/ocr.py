@@ -24,7 +24,7 @@ FIELD_FOCUS = {
     "stamina": (0.35, 0.00, 0.90, 1.00),
     "food": (0.08, 0.00, 1.00, 1.00),
     "iron": (0.08, 0.00, 1.00, 1.00),
-    "gold": (0.08, 0.00, 1.00, 1.00),
+    "gold": (0.00, 0.00, 1.00, 1.00),
     "power": (0.10, 0.12, 1.00, 1.00),
     "diamonds": (0.45, 0.40, 1.00, 1.00),
 }
@@ -37,6 +37,11 @@ RESOURCE_ICON_HSV = {
     "food": ((5, 50, 80), (30, 255, 255)),
     "iron": ((95, 40, 70), (125, 255, 255)),
     "gold": ((15, 90, 120), (45, 255, 255)),
+}
+RESOURCE_ANCHOR_EXPANSION = {
+    "food": (4, 2, 4, 2),
+    "iron": (4, 2, 4, 2),
+    "gold": (12, 3, 8, 3),
 }
 
 
@@ -341,6 +346,9 @@ class OcrRegionReader:
             anchored = self._resource_anchor_region(frame, region, field_name)
             if anchored is not None and anchored not in candidates:
                 candidates.insert(0, anchored)
+                expanded = self._expand_resource_anchor_region(frame, anchored, field_name)
+                if expanded not in candidates:
+                    candidates.insert(1, expanded)
         if field_name == "diamonds":
             left, top, right, bottom = region
             pad_left, pad_top, pad_right, pad_bottom = DIAMONDS_CONTEXT_PADDING
@@ -389,6 +397,24 @@ class OcrRegionReader:
         digit_bottom = top + min(crop.shape[0], y + h + h // 5)
         return self._clip_region(frame, (digit_left, digit_top, digit_right, digit_bottom))
 
+    def _expand_resource_anchor_region(
+        self,
+        frame: np.ndarray,
+        region: tuple[int, int, int, int],
+        field_name: str,
+    ) -> tuple[int, int, int, int]:
+        left, top, right, bottom = region
+        width = max(1, right - left)
+        height = max(1, bottom - top)
+        pad_left, pad_top, pad_right, pad_bottom = RESOURCE_ANCHOR_EXPANSION.get(field_name, (4, 2, 4, 2))
+        expanded = (
+            left - max(pad_left, width // 6),
+            top - max(pad_top, height // 6),
+            right + max(pad_right, width // 10),
+            bottom + max(pad_bottom, height // 6),
+        )
+        return self._clip_region(frame, expanded)
+
     def _truck_power_regions(
         self, frame: np.ndarray, icon_top_left: tuple[int, int], icon_size: tuple[int, int]
     ) -> list[tuple[int, int, int, int]]:
@@ -423,6 +449,13 @@ class OcrRegionReader:
         if not digits:
             return -1.0
         score = float(len(digits))
+        if field_name in RESOURCE_FIELDS:
+            upper_text = text.upper()
+            if any(suffix in upper_text for suffix in ("K", "M", "B")):
+                score += 1.5
+            if "." in text:
+                score += 0.75
+            score += min(len(text), 8) * 0.05
         if field_name == "diamonds":
             score += len(text) * 0.1
         return score
@@ -477,11 +510,26 @@ class OcrRegionReader:
     def _extract_candidates(self, result) -> list[tuple[str, float]]:
         candidates: list[tuple[str, float]] = []
         for line in result or []:
+            line_candidates: list[tuple[float, str, float]] = []
             for item in line or []:
                 if len(item) >= 2 and item[1]:
                     text = str(item[1][0])
                     confidence = float(item[1][1]) if len(item[1]) > 1 else 0.0
                     candidates.append((text, confidence))
+                    box = item[0] if item else None
+                    if box:
+                        xs = [point[0] for point in box]
+                        line_candidates.append((min(xs), text, confidence))
+            if len(line_candidates) >= 2:
+                ordered = sorted(line_candidates, key=lambda item: item[0])
+                merged_text = "".join(text for _, text, _ in ordered)
+                merged_confidence = sum(confidence for _, _, confidence in ordered) / len(ordered)
+                candidates.append((merged_text, merged_confidence))
+                for index in range(len(ordered) - 1):
+                    pair = ordered[index : index + 2]
+                    pair_text = "".join(text for _, text, _ in pair)
+                    pair_confidence = sum(confidence for _, _, confidence in pair) / len(pair)
+                    candidates.append((pair_text, pair_confidence))
         return candidates
 
     def _extract_text_boxes(self, result, scale: int = 1) -> list[tuple[str, float, tuple[int, int]]]:
