@@ -20,15 +20,15 @@ DEFAULT_MATCHING_REGIONS: dict[str, tuple[float, float, float, float]] = {
     "station_zoomed_out_full": (0.00, 0.00, 0.40, 0.40),
     "ur_shard": (0.00, 0.72, 0.75, 1.00),
     "truck_refresh_button": (0.58, 0.00, 0.72, 0.12),
-    "truck_power_icon": (0.08, 0.64, 0.50, 0.90),
+    "truck_power_icon": (0.08, 0.32, 0.44, 0.64),
 }
 
 DEFAULT_PLAYER_INFO_REGIONS: dict[str, tuple[int, int, int, int]] = {
     "level": (8, 38, 78, 94),
     "stamina": (0, 84, 92, 134),
-    "food": (72, 0, 218, 50),
-    "iron": (208, 0, 346, 50),
-    "gold": (330, 0, 470, 50),
+    "food": (72, 0, 246, 54),
+    "iron": (214, 0, 402, 54),
+    "gold": (366, 0, 556, 54),
     "power": (80, 44, 292, 112),
     "diamonds": (1788, 0, 1918, 56),
 }
@@ -147,6 +147,7 @@ class TruckConfig:
     min_target_power_m: float = 0.0
     min_ur_shards: int = 2
     alert_enabled: bool = True
+    alert_min_ur_shards: int = 2
     r4r5_share: TruckShareRule = field(default_factory=TruckShareRule)
     alliance_share: TruckShareRule = field(default_factory=TruckShareRule)
     max_refresh_attempts: int = 4

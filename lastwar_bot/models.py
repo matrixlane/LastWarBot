@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class ScreenState(str, Enum):
@@ -33,6 +35,70 @@ class TruckDetection:
     top_left: tuple[int, int]
     size: tuple[int, int]
     area: float
+
+
+@dataclass(slots=True)
+class TruckPlayerIdentity:
+    full_name: str | None = None
+    server_id: str | None = None
+    alliance_tag: str | None = None
+    player_name: str | None = None
+    level: int | None = None
+
+    def is_complete(self) -> bool:
+        return bool(self.full_name or self.level is not None)
+
+    def canonical_name(self) -> str | None:
+        return _canonicalize_identity_text(self.player_name) or _canonicalize_identity_text(self.full_name)
+
+
+def _canonicalize_identity_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    normalized = unicodedata.normalize("NFKC", text)
+    chars: list[str] = []
+    for char in normalized:
+        if char.isalnum() or char.isspace():
+            chars.append(char)
+            continue
+        chars.append(" ")
+    collapsed = " ".join("".join(chars).split()).strip().lower()
+    return collapsed or None
+
+
+@dataclass(slots=True)
+class TruckPlunderRecord:
+    timestamp: str
+    full_name: str | None
+    server_id: str | None
+    alliance_tag: str | None
+    player_name: str | None
+    player_level: int | None
+    power: int | None
+    ur_shard_count: int
+    truck_color: str
+    truck_type: str
+    center: tuple[int, int]
+
+    def canonical_summary(self) -> str | None:
+        parts = [
+            f"等级={self.player_level}" if self.player_level is not None else None,
+            f"战力={self.power}" if self.power is not None else None,
+            f"UR={self.ur_shard_count}",
+        ]
+        parts = [part for part in parts if part]
+        if not parts:
+            return None
+        return " | ".join(parts)
+
+    def dedupe_key(self) -> tuple[Any, ...] | None:
+        if self.player_level is None or self.power is None:
+            return None
+        return (
+            self.ur_shard_count,
+            self.player_level,
+            self.power,
+        )
 
 
 @dataclass(slots=True)

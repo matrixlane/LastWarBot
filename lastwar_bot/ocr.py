@@ -3,13 +3,14 @@
 import os
 import contextlib
 import re
+import threading
 from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
 
 from .config import BASE_CLIENT_HEIGHT, BASE_CLIENT_WIDTH, PlayerInfoConfig
-from .models import PlayerStats
+from .models import PlayerStats, TruckPlayerIdentity
 
 
 SUFFIX_MULTIPLIERS = {
@@ -22,9 +23,9 @@ SUFFIX_MULTIPLIERS = {
 FIELD_FOCUS = {
     "level": (0.18, 0.10, 0.78, 0.92),
     "stamina": (0.35, 0.00, 0.90, 1.00),
-    "food": (0.08, 0.00, 1.00, 1.00),
-    "iron": (0.08, 0.00, 1.00, 1.00),
-    "gold": (0.00, 0.00, 1.00, 1.00),
+    "food": (0.18, 0.00, 1.00, 1.00),
+    "iron": (0.18, 0.00, 1.00, 1.00),
+    "gold": (0.14, 0.00, 1.00, 1.00),
     "power": (0.10, 0.12, 1.00, 1.00),
     "diamonds": (0.45, 0.40, 1.00, 1.00),
 }
@@ -107,8 +108,127 @@ def parse_numeric_text(text: str) -> float | None:
     return number
 
 
+def parse_level_text(text: str) -> int | None:
+    if not text:
+        return None
+    normalized = re.sub(r"\s+", "", text.upper())
+    match = re.search(r"LV\.?(\d{1,3})", normalized)
+    if not match:
+        match = re.search(r"\b(\d{1,3})\b", normalized)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
 def normalize_dialog_text(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def normalize_truck_player_name(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    cleaned = re.sub(r"(#\d+)(\[[^\]]+\])", r"\1 \2", cleaned)
+    cleaned = re.sub(r"^#(\d{4})\d+", r"#\1", cleaned)
+    cleaned = re.sub(r"^\d+\s*(?=#\d+)", "", cleaned)
+    cleaned = re.sub(r"(?<=#\d{4})\d+(?:\.\d+)?[KMB]\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+\d+(?:\.\d+)?[KMB]$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def parse_truck_player_identity(text: str) -> TruckPlayerIdentity:
+    full_name = normalize_truck_player_name(text)
+    if not full_name:
+        return TruckPlayerIdentity()
+    match = re.match(r"^#(\d{4})\d*\s*(\[[^\]]+\])?\s*(.*)$", full_name)
+    if not match:
+        return TruckPlayerIdentity(full_name=full_name, player_name=full_name)
+    server_id = f"#{match.group(1)}" if match.group(1) else None
+    alliance_tag = match.group(2) or None
+    player_name = (match.group(3) or "").strip() or None
+    normalized_full_name = " ".join(
+        part for part in (server_id, alliance_tag, player_name) if part
+    ).strip()
+    return TruckPlayerIdentity(
+        full_name=normalized_full_name or full_name,
+        server_id=server_id,
+        alliance_tag=alliance_tag,
+        player_name=player_name,
+    )
+
+
+def _truck_name_regions(panel_rect: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    left, top, right, bottom = _truck_info_card_region(panel_rect)
+    panel_width = max(1, right - left)
+    panel_height = max(1, bottom - top)
+    return [
+        (
+            left + int(panel_width * 0.19),
+            top + int(panel_height * 0.18),
+            left + int(panel_width * 0.72),
+            top + int(panel_height * 0.32),
+        ),
+        (
+            left + int(panel_width * 0.18),
+            top + int(panel_height * 0.17),
+            left + int(panel_width * 0.74),
+            top + int(panel_height * 0.34),
+        ),
+    ]
+
+
+def _truck_level_regions(panel_rect: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    left, top, right, bottom = _truck_info_card_region(panel_rect)
+    panel_width = max(1, right - left)
+    panel_height = max(1, bottom - top)
+    return [
+        (
+            left + int(panel_width * 0.19),
+            top + int(panel_height * 0.31),
+            left + int(panel_width * 0.44),
+            top + int(panel_height * 0.45),
+        ),
+        (
+            left + int(panel_width * 0.18),
+            top + int(panel_height * 0.30),
+            left + int(panel_width * 0.46),
+            top + int(panel_height * 0.47),
+        ),
+    ]
+
+
+def _truck_power_row_regions(panel_rect: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
+    left, top, right, bottom = _truck_info_card_region(panel_rect)
+    panel_width = max(1, right - left)
+    panel_height = max(1, bottom - top)
+    return [
+        (
+            left + int(panel_width * 0.19),
+            top + int(panel_height * 0.43),
+            left + int(panel_width * 0.48),
+            top + int(panel_height * 0.59),
+        ),
+        (
+            left + int(panel_width * 0.18),
+            top + int(panel_height * 0.42),
+            left + int(panel_width * 0.50),
+            top + int(panel_height * 0.61),
+        ),
+    ]
+
+
+def _truck_info_card_region(panel_rect: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    left, top, right, bottom = panel_rect
+    panel_width = max(1, right - left)
+    panel_height = max(1, bottom - top)
+    return (
+        left + int(panel_width * 0.04),
+        top + int(panel_height * 0.68),
+        left + int(panel_width * 0.95),
+        top + int(panel_height * 0.985),
+    )
 
 
 @dataclass(slots=True)
@@ -116,6 +236,7 @@ class OcrRegionReader:
     config: PlayerInfoConfig
     _engine: object | None = field(init=False, default=None, repr=False)
     _disabled_reason: str | None = field(init=False, default=None, repr=False)
+    _engine_lock: threading.RLock = field(init=False, default_factory=threading.RLock, repr=False)
 
     def extract_stats(self, frame: np.ndarray) -> PlayerStats:
         if self._disabled_reason:
@@ -175,43 +296,127 @@ class OcrRegionReader:
             self._disabled_reason = str(exc)
             return None
 
-        left, top, right, bottom = panel_rect
-        panel_width = max(1, right - left)
-        panel_height = max(1, bottom - top)
-        candidates = [
-            (
-                left + int(panel_width * 0.16),
-                top + int(panel_height * 0.69),
-                left + int(panel_width * 0.42),
-                top + int(panel_height * 0.84),
-            ),
-            (
-                left + int(panel_width * 0.14),
-                top + int(panel_height * 0.66),
-                left + int(panel_width * 0.46),
-                top + int(panel_height * 0.86),
-            ),
-        ]
-
-        best_value: float | None = None
-        best_score = -1
-        for region in candidates:
+        scored_candidates: list[tuple[str, float, float]] = []
+        candidates = _truck_power_row_regions(panel_rect)
+        for index, region in enumerate(candidates):
             crop = self._crop(frame, self._clip_region(frame, region))
             if crop.size == 0:
                 continue
-            crop = cv2.resize(crop, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-            text = self._ocr_best_text(engine, crop, "truck_power")
-            value = parse_numeric_text(text)
-            if value is None:
-                continue
-            normalized = normalize_ocr_text(text)
-            score = len(re.sub(r"\D", "", normalized))
-            if any(unit in normalized for unit in ("K", "M", "B")):
-                score += 3
+            for text, confidence in self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=5,
+                merge_lines=False,
+                allow_fallback_variants=index > 0,
+            ):
+                value = parse_numeric_text(text)
+                if value is None:
+                    continue
+                normalized = normalize_ocr_text(text)
+                score = len(re.sub(r"\D", "", normalized)) + confidence
+                if any(unit in normalized for unit in ("K", "M", "B")):
+                    score += 3
+                if "." in normalized:
+                    score += 1
+                scored_candidates.append((normalized.upper(), value, score))
+        if not scored_candidates:
+            return None
+        normalized_texts = {token for token, _, _ in scored_candidates}
+        best_token = ""
+        best_value: float | None = None
+        best_score = -1.0
+        for token, value, score in scored_candidates:
+            if any(
+                other != token
+                and token.endswith(other)
+                and len(token) > len(other)
+                and len(token) - len(other) <= 2
+                for other in normalized_texts
+            ):
+                score -= 2.5
             if score > best_score:
                 best_score = score
+                best_token = token
                 best_value = value
         return best_value
+
+    def extract_truck_player_identity_from_panel(
+        self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]
+    ) -> TruckPlayerIdentity:
+        if self._disabled_reason:
+            return TruckPlayerIdentity()
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return TruckPlayerIdentity()
+
+        best_text = ""
+        best_score = -1.0
+        for index, region in enumerate(_truck_name_regions(panel_rect)):
+            crop = self._crop(frame, self._clip_region(frame, region))
+            if crop.size == 0:
+                continue
+            for text, confidence in self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=4,
+                merge_lines=False,
+                allow_fallback_variants=index > 0,
+            ):
+                cleaned = normalize_truck_player_name(text)
+                if not cleaned:
+                    continue
+                score = confidence + len(cleaned) * 0.05
+                if "#" in cleaned:
+                    score += 5.0
+                else:
+                    score -= 4.0
+                if "[" in cleaned and "]" in cleaned:
+                    score += 1.5
+                if re.search(r"\d+(?:\.\d+)?[KMB]", cleaned, flags=re.IGNORECASE):
+                    score -= 2.0
+                if "LV." in cleaned.upper() or "LV" == cleaned.upper():
+                    score -= 3.0
+                if "到站时间" in cleaned:
+                    score -= 3.0
+                if score > best_score:
+                    best_score = score
+                    best_text = cleaned
+        return parse_truck_player_identity(best_text)
+
+    def extract_truck_player_level_from_panel(self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]) -> int | None:
+        if self._disabled_reason:
+            return None
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return None
+
+        best_level: int | None = None
+        best_score = -1.0
+        for index, region in enumerate(_truck_level_regions(panel_rect)):
+            crop = self._crop(frame, self._clip_region(frame, region))
+            if crop.size == 0:
+                continue
+            for text, confidence in self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=5,
+                merge_lines=False,
+                allow_fallback_variants=index > 0,
+            ):
+                level = parse_level_text(text)
+                if level is None:
+                    continue
+                score = confidence + level * 0.001
+                if "LV" in text.upper():
+                    score += 1.0
+                if score > best_score:
+                    best_score = score
+                    best_level = level
+        return best_level
 
     @property
     def disabled_reason(self) -> str | None:
@@ -253,7 +458,8 @@ class OcrRegionReader:
         scale = 2
         enlarged = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
         try:
-            result = engine.ocr(enlarged, cls=False)
+            with self._engine_lock:
+                result = engine.ocr(enlarged, cls=False)
         except Exception:
             return None
         normalized_tokens = tuple(normalize_dialog_text(token) for token in required_tokens)
@@ -272,24 +478,25 @@ class OcrRegionReader:
         return best_center
 
     def _get_engine(self):
-        if self._engine is None:
-            os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-            os.environ.setdefault("FLAGS_use_mkldnn", "0")
-            os.environ.setdefault("FLAGS_enable_pir_api", "0")
-            os.environ.setdefault("OMP_NUM_THREADS", "1")
-            try:
+        with self._engine_lock:
+            if self._engine is None:
+                os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+                os.environ.setdefault("FLAGS_use_mkldnn", "0")
+                os.environ.setdefault("FLAGS_enable_pir_api", "0")
+                os.environ.setdefault("OMP_NUM_THREADS", "1")
+                try:
+                    with suppress_console_noise():
+                        from paddleocr import PaddleOCR
+                except ImportError as exc:
+                    raise RuntimeError("paddleocr is required for OCR support") from exc
                 with suppress_console_noise():
-                    from paddleocr import PaddleOCR
-            except ImportError as exc:
-                raise RuntimeError("paddleocr is required for OCR support") from exc
-            with suppress_console_noise():
-                self._engine = PaddleOCR(
-                    use_angle_cls=False,
-                    lang=self.config.language,
-                    use_gpu=self.config.use_gpu,
-                    show_log=False,
-                )
-        return self._engine
+                    self._engine = PaddleOCR(
+                        use_angle_cls=False,
+                        lang=self.config.language,
+                        use_gpu=self.config.use_gpu,
+                        show_log=False,
+                    )
+            return self._engine
 
     def _crop(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> np.ndarray:
         left, top, right, bottom = region
@@ -345,10 +552,10 @@ class OcrRegionReader:
         if field_name in RESOURCE_FIELDS:
             anchored = self._resource_anchor_region(frame, region, field_name)
             if anchored is not None and anchored not in candidates:
-                candidates.insert(0, anchored)
                 expanded = self._expand_resource_anchor_region(frame, anchored, field_name)
                 if expanded not in candidates:
-                    candidates.insert(1, expanded)
+                    candidates.append(expanded)
+                candidates.append(anchored)
         if field_name == "diamonds":
             left, top, right, bottom = region
             pad_left, pad_top, pad_right, pad_bottom = DIAMONDS_CONTEXT_PADDING
@@ -501,13 +708,44 @@ class OcrRegionReader:
 
     def _ocr_best_text(self, engine, image: np.ndarray, field_name: str) -> str:
         try:
-            result = engine.ocr(image, cls=False)
+            with self._engine_lock:
+                result = engine.ocr(image, cls=False)
         except Exception:
             return ""
         candidates = self._extract_candidates(result)
         return self._select_candidate(candidates, field_name)
 
-    def _extract_candidates(self, result) -> list[tuple[str, float]]:
+    def _ocr_text_candidates(self, engine, image: np.ndarray, merge_lines: bool = True) -> list[tuple[str, float]]:
+        try:
+            with self._engine_lock:
+                result = engine.ocr(image, cls=False)
+        except Exception:
+            return []
+        return self._extract_candidates(result, merge_lines=merge_lines)
+
+    def _ocr_candidates_with_variants(
+        self,
+        engine,
+        crop: np.ndarray,
+        scale: int = 4,
+        merge_lines: bool = True,
+        allow_fallback_variants: bool = True,
+    ) -> list[tuple[str, float]]:
+        if crop.size == 0:
+            return []
+        enlarged = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        candidates = self._ocr_text_candidates(engine, enlarged, merge_lines=merge_lines)
+        if candidates:
+            return candidates
+        if not allow_fallback_variants:
+            return []
+        for variant in self._fallback_variants(enlarged):
+            candidates.extend(self._ocr_text_candidates(engine, variant, merge_lines=merge_lines))
+            if candidates:
+                break
+        return candidates
+
+    def _extract_candidates(self, result, merge_lines: bool = True) -> list[tuple[str, float]]:
         candidates: list[tuple[str, float]] = []
         for line in result or []:
             line_candidates: list[tuple[float, str, float]] = []
@@ -520,7 +758,7 @@ class OcrRegionReader:
                     if box:
                         xs = [point[0] for point in box]
                         line_candidates.append((min(xs), text, confidence))
-            if len(line_candidates) >= 2:
+            if merge_lines and len(line_candidates) >= 2:
                 ordered = sorted(line_candidates, key=lambda item: item[0])
                 merged_text = "".join(text for _, text, _ in ordered)
                 merged_confidence = sum(confidence for _, _, confidence in ordered) / len(ordered)
@@ -562,7 +800,7 @@ class OcrRegionReader:
                     continue
                 token = match.group(0)
             elif field_name == "power":
-                match = re.search(r"\d{1,3}(?:\.\d{3})+|\d+", normalized)
+                match = re.search(r"\d+(?:\.\d+)?[KMB]?", normalized.upper())
                 if not match:
                     continue
                 token = match.group(0)
@@ -574,6 +812,11 @@ class OcrRegionReader:
                 if field_name in RESOURCE_FIELDS and token[-1:] not in {"K", "M", "B"} and "." in token:
                     token = f"{token}M"
             score = len(token) + confidence
+            if field_name == "power":
+                if token[-1:] in {"K", "M", "B"}:
+                    score += 1.0
+                else:
+                    score -= 1.5
             if field_name in RESOURCE_FIELDS and token[-1:] in {"K", "M", "B"}:
                 score += 0.8
             if score > best_score:

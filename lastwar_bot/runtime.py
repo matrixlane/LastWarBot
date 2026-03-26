@@ -17,7 +17,15 @@ from .config import BotConfig
 from .event_log import EventLogger
 from .hotkey import HotkeyManager
 from .logging_utils import format_cycle_summary, timestamp
-from .models import BotRunState, FrameAnalysis, PlayerStats, ScreenState, TruckDetection
+from .models import (
+    BotRunState,
+    FrameAnalysis,
+    PlayerStats,
+    ScreenState,
+    TruckDetection,
+    TruckPlayerIdentity,
+    TruckPlunderRecord,
+)
 from .notifier import OpenClawNotifier
 from .ocr import OcrRegionReader
 from .process import WindowManager
@@ -600,10 +608,38 @@ class LastWarBot:
             print(f"[{timestamp()}] {truck_label}@{truck.center} UR碎片 x{count}")
             if count < search_threshold:
                 continue
+            player_identity, truck_power = self._inspect_truck_identity_and_power(truck_label, truck.center, frame)
             power_threshold_m = max(0.0, self.config.truck.min_target_power_m)
-            if power_threshold_m > 0 and self._should_skip_truck_for_power(hwnd, truck_label, truck.center, frame, power_threshold_m):
+            if power_threshold_m > 0 and self._should_skip_truck_for_power(
+                truck_label,
+                truck.center,
+                player_identity,
+                truck_power,
+                power_threshold_m,
+            ):
                 continue
-            if self.config.truck.alert_enabled:
+            if power_threshold_m > 0 and truck_power is None:
+                print(f"[{timestamp()}] 目标货车战力未可靠识别，已暂停自动分享，请人工确认。")
+                if self._wait_for_truck_skip(truck_label, truck.center, count):
+                    continue
+                return True
+            record = self._build_truck_plunder_record(truck, count, player_identity, truck_power)
+            if record is not None and self.event_logger.has_recent_matching_truck(record, within_hours=1.0):
+                print(
+                    f"[{timestamp()}] 1小时内已存在相同货车记录，已自动跳过："
+                    f"{record.full_name or '玩家名称未识别'} "
+                    f"等级={record.player_level if record.player_level is not None else '-'} "
+                    f"战力={self._format_truck_power_display(record.power)} "
+                    f"UR碎片 x{record.ur_shard_count} 去重键={record.canonical_summary() or '-'}。"
+                )
+                continue
+            if record is not None:
+                self.event_logger.log_truck_plunder(record)
+            if self._truck_restart_requested:
+                return False
+            alert_threshold = max(1, self.config.truck.alert_min_ur_shards)
+            alert_triggered = self.config.truck.alert_enabled and count >= alert_threshold
+            if alert_triggered:
                 self._play_high_value_truck_sound()
             share_target = self.config.truck.share_target_for(count)
             if share_target is not None:
@@ -612,20 +648,24 @@ class LastWarBot:
                         f"{self._share_target_label(share_target)}，UR碎片 x{count}。"
                 )
                 if self._share_truck(hwnd, truck_label, truck.center, frame, share_target):
-                    print(
-                        f"[{timestamp()}] 已自动分享目标货车到"
-                        f"{self._share_target_label(share_target)}，继续搜索下一辆。"
-                    )
                     continue
                 print(f"[{timestamp()}] 自动分享失败，保留当前目标等待人工处理。")
+            elif not alert_triggered:
+                print(f"[{timestamp()}] 未命中提醒或分享条件，已自动跳过当前货车并继续搜索。")
+                continue
             if self._wait_for_truck_skip(truck_label, truck.center, count):
                 continue
             return True
         return False
 
-    def _extract_truck_power(self, frame) -> float | None:
+    def _extract_truck_power(self, frame, panel_rect=None) -> float | None:
         try:
-            panel_rect = self.matcher.detect_truck_panel(frame)
+            if panel_rect is None:
+                panel_rect = self.matcher.detect_truck_panel(frame)
+            if panel_rect is not None:
+                value = self.player_info_reader.extract_truck_power_from_panel(frame, panel_rect)
+                if value is not None:
+                    return value
             icon = self.matcher.find_truck_power_icon(frame, panel_rect=panel_rect)
             if icon is not None:
                 value = self.player_info_reader.extract_truck_power(frame, icon.top_left, icon.size)
@@ -636,6 +676,18 @@ class LastWarBot:
             return self.player_info_reader.extract_truck_power_from_panel(frame, panel_rect)
         except Exception:
             return None
+
+    def _extract_truck_player_identity(self, frame, panel_rect=None) -> TruckPlayerIdentity:
+        try:
+            if panel_rect is None:
+                panel_rect = self.matcher.detect_truck_panel(frame)
+            if panel_rect is None:
+                return TruckPlayerIdentity()
+            identity = self.player_info_reader.extract_truck_player_identity_from_panel(frame, panel_rect)
+            identity.level = self.player_info_reader.extract_truck_player_level_from_panel(frame, panel_rect)
+            return identity
+        except Exception:
+            return TruckPlayerIdentity()
 
     def _confirm_ur_shards(
         self,
@@ -661,29 +713,110 @@ class LastWarBot:
             return confirm_ur_shards, confirm_frame
         return ur_shards, frame
 
-    def _should_skip_truck_for_power(
+    def _inspect_truck_identity_and_power(
         self,
-        hwnd: int,
         truck_label: str,
         center: tuple[int, int],
         frame,
+    ) -> tuple[TruckPlayerIdentity, float | None]:
+        print(f"[{timestamp()}] 正在检查货车详情...")
+        panel_rect = self.matcher.detect_truck_panel(frame)
+        player_identity = self._extract_truck_player_identity(frame, panel_rect=panel_rect)
+        truck_power = self._extract_truck_power(frame, panel_rect=panel_rect)
+        if not self._is_truck_power_plausible(player_identity, truck_power):
+            suspicious_text = (
+                self._format_truck_power_display(int(round(truck_power)))
+                if truck_power is not None
+                else "未识别"
+            )
+            if truck_power is not None:
+                print(f"[{timestamp()}] 目标货车的战力识别异常：{suspicious_text}，已视为未识别。")
+            truck_power = None
+        player_name = player_identity.full_name or "未识别"
+        level_text = str(player_identity.level) if player_identity.level is not None else "未识别"
+        power_text = (
+            self._format_truck_power_display(int(round(truck_power)))
+            if truck_power is not None
+            else "未识别"
+        )
+        print(
+            f"[{timestamp()}] 目标货车的玩家名称：{player_name} 等级：{level_text} 战力：{power_text}"
+        )
+        return player_identity, truck_power
+
+    @staticmethod
+    def _is_truck_power_plausible(
+        player_identity: TruckPlayerIdentity,
+        truck_power: float | None,
+    ) -> bool:
+        if truck_power is None:
+            return False
+        if truck_power < 100_000:
+            return False
+        if player_identity.level is not None:
+            if player_identity.level >= 20 and truck_power < 1_000_000:
+                return False
+            if player_identity.level >= 25 and truck_power < 2_000_000:
+                return False
+        return True
+
+    def _should_skip_truck_for_power(
+        self,
+        truck_label: str,
+        center: tuple[int, int],
+        player_identity: TruckPlayerIdentity,
+        truck_power: float | None,
         threshold_m: float,
     ) -> bool:
         threshold = threshold_m * 1_000_000
-        print(f"[{timestamp()}] 正在核实货车战力：{truck_label}@{center} ...")
-        truck_power = self._extract_truck_power(frame)
         if truck_power is None:
-            print(f"[{timestamp()}] 目标货车的战力：未识别")
             return False
-        print(f"[{timestamp()}] 目标货车的战力：{self._format_millions(truck_power)}M")
         if truck_power <= threshold:
             return False
 
         print(
-            f"[{timestamp()}] {truck_label}@{center} 战力={self._format_millions(truck_power)}M，"
+            f"[{timestamp()}] {truck_label}@{center}"
+            f"{' 玩家：' + player_identity.full_name if player_identity.full_name else ''}"
+            f"{' 等级：' + str(player_identity.level) if player_identity.level is not None else ''} "
+            f"战力：{self._format_millions(truck_power)}M，"
             f"高于阈值 {threshold_m:g}M，已跳过。"
         )
         return True
+
+    def _build_truck_plunder_record(
+        self,
+        truck: TruckDetection,
+        ur_shard_count: int,
+        player_identity: TruckPlayerIdentity,
+        truck_power: float | None,
+    ) -> TruckPlunderRecord | None:
+        if not player_identity.full_name and truck_power is None:
+            return None
+        return TruckPlunderRecord(
+            timestamp=timestamp(),
+            full_name=player_identity.full_name,
+            server_id=player_identity.server_id,
+            alliance_tag=player_identity.alliance_tag,
+            player_name=player_identity.player_name,
+            player_level=player_identity.level,
+            power=None if truck_power is None else int(round(truck_power)),
+            ur_shard_count=ur_shard_count,
+            truck_color=self._truck_type_label(truck.truck_type),
+            truck_type=truck.truck_type,
+            center=truck.center,
+        )
+
+    @staticmethod
+    def _format_truck_power_display(truck_power: int | None) -> str:
+        if truck_power is None:
+            return "未识别"
+        absolute = abs(truck_power)
+        for suffix, threshold in (("B", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
+            if absolute >= threshold:
+                scaled = truck_power / threshold
+                text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+                return f"{text}{suffix}"
+        return str(truck_power)
 
     def _share_truck(
         self,
@@ -699,7 +832,6 @@ class LastWarBot:
             return False
 
         self._click_client_point(hwnd, share_button.center)
-        print(f"[{timestamp()}] 已点击分享按钮，坐标={share_button.center}。")
         self._sleep_with_truck_pause(max(0.2, self.config.truck.share_wait_seconds))
 
         share_frame = self.capturer.capture_bgr(hwnd)
@@ -707,11 +839,13 @@ class LastWarBot:
         if group_center is None:
             print(f"[{timestamp()}] 自动分享失败：未能定位分享目标 {self._share_target_label(share_target)}。")
             return False
-        self._click_client_point(hwnd, group_center)
+        method = getattr(self.matcher, "last_share_option_method", "unknown")
+        method_text = "动态识别" if method == "dynamic" else "固定比例"
         print(
-            f"[{timestamp()}] 已点击分享目标 "
-            f"{self._share_target_label(share_target)}，坐标={group_center}。"
+            f"[{timestamp()}] 分享目标定位：{self._share_target_label(share_target)} 使用{method_text}，"
+            f"坐标={group_center}。"
         )
+        self._click_client_point(hwnd, group_center)
         self._sleep_with_truck_pause(max(0.2, self.config.truck.share_confirm_wait_seconds))
 
         confirm_frame = self.capturer.capture_bgr(hwnd)
@@ -721,27 +855,18 @@ class LastWarBot:
             return False
 
         self._click_client_point(hwnd, confirm_button.center)
-        print(f"[{timestamp()}] 已确认分享 {truck_label}@{center}，坐标={confirm_button.center}。")
+        print(f"[{timestamp()}] 已分享到{self._share_target_label(share_target)}。")
         self._sleep_with_truck_pause(max(0.2, self.config.truck.share_confirm_wait_seconds))
         return True
 
     def _resolve_share_group_center(self, frame, share_target: str) -> tuple[int, int] | None:
         if share_target == "alliance":
-            if self.config.debug.enabled:
-                print(f"[{timestamp()}] 同盟群按分享弹窗第二行位置定位。")
             return self.matcher.infer_share_option_center(frame, row_index=1)
 
         if share_target != "r4r5":
             return None
 
-        list_region = self.matcher.infer_share_list_region(frame)
-        group_center = self.player_info_reader.find_text_center_in_region(frame, list_region, ("R4", "R5"))
-        if group_center is not None:
-            return group_center
-        group_center = self.matcher.infer_share_option_center(frame, row_index=2)
-        if self.config.debug.enabled:
-            print(f"[{timestamp()}] R4&R5 群未通过OCR命中，使用第三行后备定位：{group_center}")
-        return group_center
+        return self.matcher.infer_share_option_center(frame, row_index=2)
 
     @staticmethod
     def _format_millions(value: float) -> str:
@@ -749,7 +874,7 @@ class LastWarBot:
 
     @staticmethod
     def _share_target_label(share_target: str) -> str:
-        return "R4 & R5" if share_target == "r4r5" else "同盟群"
+        return "R4 & R5群" if share_target == "r4r5" else "同盟群"
 
     def _wait_for_truck_skip(self, truck_label: str, center: tuple[int, int], count: int) -> bool:
         self._truck_skip_event.clear()

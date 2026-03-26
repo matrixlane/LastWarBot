@@ -40,11 +40,11 @@ SHARE_BUTTON_BLUE_LOWER = (85, 80, 120)
 SHARE_BUTTON_BLUE_UPPER = (125, 255, 255)
 SHARE_BUTTON_MIN_AREA = 700
 SHARE_DIALOG_REGION = (0.31, 0.23, 0.68, 0.80)
-SHARE_DIALOG_LIST_REGION = (0.04, 0.13, 0.96, 0.96)
+SHARE_DIALOG_LIST_REGION = (0.04, 0.08, 0.96, 0.96)
 SHARE_CONFIRM_DIALOG_REGION = (0.08, 0.13, 0.92, 0.82)
 SHARE_CONFIRM_BUTTON_REGION = (0.50, 0.58, 0.93, 0.94)
-SHARE_OPTION_FIRST_ROW_CENTER_RATIO = 0.14
-SHARE_OPTION_ROW_STEP_RATIO = 0.225
+SHARE_OPTION_FIRST_ROW_CENTER_RATIO = 0.095
+SHARE_OPTION_ROW_STEP_RATIO = 0.175
 DIG_UP_TREASURE_YELLOW_LOWER = (12, 80, 130)
 DIG_UP_TREASURE_YELLOW_UPPER = (45, 255, 255)
 DIG_UP_TREASURE_ORANGE_LOWER = (5, 90, 90)
@@ -104,6 +104,7 @@ class TemplateMatcher:
     def __init__(self, config: MatchingConfig, root_dir: Path | None = None) -> None:
         self.config = config
         self.root_dir = root_dir or Path.cwd()
+        self.last_share_option_method = "unknown"
         self.templates = {
             name: load_image_bgr(self.root_dir / self.config.images_dir / filename)
             for name, filename in TEMPLATE_FILES.items()
@@ -434,6 +435,11 @@ class TemplateMatcher:
         left, top, right, bottom = self.infer_share_list_region(frame)
         width = max(1, right - left)
         height = max(1, bottom - top)
+        detected_centers = self._detect_share_option_centers(frame, (left, top, right, bottom))
+        if 0 <= row_index < len(detected_centers):
+            self.last_share_option_method = "dynamic"
+            return detected_centers[row_index]
+        self.last_share_option_method = "static"
         clamped_row_index = max(0, row_index)
         center_x = left + width // 2
         center_y = top + int(
@@ -450,6 +456,66 @@ class TemplateMatcher:
         dialog_rect = self.infer_share_confirm_dialog_rect(frame)
         search_rect = self._rect_within(dialog_rect, SHARE_CONFIRM_BUTTON_REGION)
         return self._find_blue_button_in_rect(frame, search_rect, "share_confirm_button", SHARE_BUTTON_MIN_AREA)
+
+    def _detect_share_option_centers(
+        self,
+        frame: np.ndarray,
+        rect: tuple[int, int, int, int],
+    ) -> list[tuple[int, int]]:
+        left, top, right, bottom = rect
+        frame_height, frame_width = frame.shape[:2]
+        left = max(0, min(frame_width - 1, left))
+        top = max(0, min(frame_height - 1, top))
+        right = max(left + 1, min(frame_width, right))
+        bottom = max(top + 1, min(frame_height, bottom))
+        roi = frame[top:bottom, left:right]
+        if roi.size == 0:
+            return []
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        mask = cv2.inRange(gray, 225, 255)
+        kernel = np.ones((5, 5), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        roi_height, roi_width = gray.shape[:2]
+        min_width = roi_width * 0.65
+        min_height = max(36, int(roi_height * 0.08))
+        max_height = max(min_height + 1, int(roi_height * 0.26))
+
+        boxes: list[tuple[int, int, int, int]] = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if w < min_width:
+                continue
+            if h < min_height or h > max_height:
+                continue
+            boxes.append((x, y, w, h))
+
+        boxes.sort(key=lambda item: item[1])
+        merged: list[tuple[int, int, int, int]] = []
+        for box in boxes:
+            if not merged:
+                merged.append(box)
+                continue
+            prev_x, prev_y, prev_w, prev_h = merged[-1]
+            x, y, w, h = box
+            prev_center_y = prev_y + prev_h / 2
+            center_y = y + h / 2
+            if abs(center_y - prev_center_y) <= max(prev_h, h) * 0.4:
+                new_left = min(prev_x, x)
+                new_top = min(prev_y, y)
+                new_right = max(prev_x + prev_w, x + w)
+                new_bottom = max(prev_y + prev_h, y + h)
+                merged[-1] = (new_left, new_top, new_right - new_left, new_bottom - new_top)
+            else:
+                merged.append(box)
+
+        centers: list[tuple[int, int]] = []
+        for x, y, w, h in merged:
+            centers.append((left + x + w // 2, top + y + h // 2))
+        return centers
 
     def _find_dig_up_treasure_color_marker(
         self,
