@@ -70,13 +70,13 @@ truck:
   min_target_power_m: 15.0
   min_ur_shards: 2
   alert_enabled: true
-  alert_min_ur_shards: 2
+  alert_min_ur_shards: 3
   r4r5_share:
     enabled: true
-    min_ur_shards: 3
+    min_ur_shards: 4
   alliance_share:
     enabled: true
-    min_ur_shards: 2
+    min_ur_shards: 3
   max_refresh_attempts: 999
   inspection_wait_seconds: 0.2
   ur_shard_confirm_interval_seconds: 0.2
