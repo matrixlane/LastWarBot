@@ -548,14 +548,16 @@ class OcrRegionReader:
     def _candidate_regions(
         self, frame: np.ndarray, region: tuple[int, int, int, int], field_name: str
     ) -> list[tuple[int, int, int, int]]:
-        candidates = [region]
+        candidates: list[tuple[int, int, int, int]] = []
         if field_name in RESOURCE_FIELDS:
             anchored = self._resource_anchor_region(frame, region, field_name)
-            if anchored is not None and anchored not in candidates:
+            if anchored is not None:
+                candidates.append(anchored)
                 expanded = self._expand_resource_anchor_region(frame, anchored, field_name)
                 if expanded not in candidates:
                     candidates.append(expanded)
-                candidates.append(anchored)
+        if region not in candidates:
+            candidates.append(region)
         if field_name == "diamonds":
             left, top, right, bottom = region
             pad_left, pad_top, pad_right, pad_bottom = DIAMONDS_CONTEXT_PADDING

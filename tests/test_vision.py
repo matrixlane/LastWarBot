@@ -7,35 +7,72 @@ import pytest
 from lastwar_bot.config import MatchingConfig
 from lastwar_bot.logging_utils import format_cycle_summary
 from lastwar_bot.models import DetectionResult, FrameAnalysis, ScreenState
-from lastwar_bot.vision import TemplateMatcher, load_image_bgr
+from lastwar_bot.vision import TemplateMatcher
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES_DIR = ROOT / "images" / "templates"
-SAMPLES_DIR = ROOT / "images" / "samples"
 
 
-def _paste(template_name: str, location: tuple[int, int], scale: float = 1.0) -> np.ndarray:
-    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    template = load_image_bgr(TEMPLATES_DIR / template_name)
+def _paste(
+    matcher: TemplateMatcher,
+    template_name: str,
+    location: tuple[int, int],
+    scale: float = 1.0,
+    frame_shape: tuple[int, int] = (1080, 1920),
+) -> np.ndarray:
+    frame = np.zeros((frame_shape[0], frame_shape[1], 3), dtype=np.uint8)
+    template = matcher.templates[template_name]
     if scale != 1.0:
         template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-    x, y = location
-    h, w = template.shape[:2]
-    frame[y : y + h, x : x + w] = template
+    _place_template(frame, template, location)
     return frame
 
 
-def _paste_rotated(template_name: str, location: tuple[int, int], angle: float, scale: float = 1.0) -> np.ndarray:
+def _place_template(frame: np.ndarray, template: np.ndarray, location: tuple[int, int]) -> None:
+    x, y = location
+    h, w = template.shape[:2]
+    frame[y : y + h, x : x + w] = template
+
+
+def _paste_rotated(
+    matcher: TemplateMatcher,
+    template_name: str,
+    location: tuple[int, int],
+    angle: float,
+    scale: float = 1.0,
+) -> np.ndarray:
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    template = load_image_bgr(TEMPLATES_DIR / template_name)
+    template = matcher.templates[template_name]
     if scale != 1.0:
         template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     h, w = template.shape[:2]
     matrix = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angle, 1.0)
     rotated = cv2.warpAffine(template, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0))
-    x, y = location
-    frame[y : y + h, x : x + w] = rotated
+    _place_template(frame, rotated, location)
+    return frame
+
+
+def _hsv_color(h: int, s: int, v: int) -> tuple[int, int, int]:
+    color = np.uint8([[[h, s, v]]])
+    bgr = cv2.cvtColor(color, cv2.COLOR_HSV2BGR)[0, 0]
+    return int(bgr[0]), int(bgr[1]), int(bgr[2])
+
+
+def _truck_sample_frame() -> np.ndarray:
+    frame = np.full((820, 1224, 3), 90, dtype=np.uint8)
+    frame[:, 280:940] = (160, 190, 120)
+    frame[:, 272:280] = 20
+    frame[:, 940:948] = 20
+    gold = _hsv_color(22, 220, 240)
+    purple = _hsv_color(150, 170, 220)
+    markers = [
+        (360, 160, gold),
+        (430, 160, purple),
+        (560, 360, gold),
+        (630, 360, purple),
+    ]
+    for x, y, color in markers:
+        frame[y : y + 84, x : x + 26] = color
     return frame
 
 
@@ -52,8 +89,8 @@ def _detection(template_name: str, confidence: float, center: tuple[int, int] = 
 
 def test_detect_base_screen_state_from_bottom_right_quarter():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    template = load_image_bgr(TEMPLATES_DIR / "??.png")
-    frame = _paste("??.png", (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
+    template = matcher.templates["world"]
+    frame = _paste(matcher, "world", (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
 
     state, detection = matcher.detect_screen_state(frame)
 
@@ -64,7 +101,7 @@ def test_detect_base_screen_state_from_bottom_right_quarter():
 
 def test_detect_alliance_help_icon_anywhere_on_frame():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = _paste("??.png", (500, 300))
+    frame = _paste(matcher, "alliance_help_icon", (500, 300))
 
     result = matcher.find_best(frame, "alliance_help_icon", threshold=0.78, multi_scale=True)
 
@@ -74,7 +111,7 @@ def test_detect_alliance_help_icon_anywhere_on_frame():
 
 def test_detect_scaled_alliance_help_icon_anywhere_on_frame():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = _paste("??.png", (700, 420), scale=1.15)
+    frame = _paste(matcher, "alliance_help_icon", (700, 420), scale=1.15)
 
     result = matcher.find_best(frame, "alliance_help_icon", threshold=0.78, multi_scale=True)
 
@@ -84,7 +121,7 @@ def test_detect_scaled_alliance_help_icon_anywhere_on_frame():
 
 def test_detect_station_with_zoom_scale():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = _paste("??.png", (40, 30), scale=0.65)
+    frame = _paste(matcher, "station", (40, 30), scale=0.65)
 
     result = matcher.find_station(frame)
 
@@ -94,7 +131,7 @@ def test_detect_station_with_zoom_scale():
 
 def test_detect_station_icon_zoomed_out_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080-??.png")
+    frame = _paste(matcher, "station_zoomed_out_icon", (40, 220))
 
     result = matcher.find_station_zoomed_out(frame)
 
@@ -104,7 +141,7 @@ def test_detect_station_icon_zoomed_out_capture():
 
 def test_analyze_detects_alliance_help_in_capture_roi():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080-??.png")
+    frame = _paste(matcher, "alliance_help_icon", (1500, 700))
 
     analysis = matcher.analyze(frame)
 
@@ -113,7 +150,7 @@ def test_analyze_detects_alliance_help_in_capture_roi():
 
 def test_detect_dig_up_treasure_icon_on_world_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080-???.png")
+    frame = _paste(matcher, "dig_up_treasure", (860, 780))
 
     result = matcher.find_best(frame, "dig_up_treasure", threshold=0.62, multi_scale=True)
 
@@ -123,7 +160,7 @@ def test_detect_dig_up_treasure_icon_on_world_capture():
 
 def test_analyze_detects_dig_up_treasure_in_capture_roi():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080-???.png")
+    frame = _paste(matcher, "dig_up_treasure", (860, 780))
 
     analysis = matcher.analyze(frame)
 
@@ -132,7 +169,8 @@ def test_analyze_detects_dig_up_treasure_in_capture_roi():
 
 def test_do_not_detect_dig_up_treasure_on_plain_world_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080.png")
+    template = matcher.templates["world"]
+    frame = _paste(matcher, "world", (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
 
     result = matcher.find_best(frame, "dig_up_treasure", threshold=0.62, multi_scale=True)
 
@@ -163,7 +201,7 @@ def test_default_dig_up_treasure_region_covers_main_map():
 
 def test_find_dig_up_treasure_with_slight_rotation_uses_fallback():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = _paste_rotated("挖掘机.png", (860, 780), angle=10, scale=0.9)
+    frame = _paste_rotated(matcher, "dig_up_treasure", (860, 780), angle=10, scale=0.9)
 
     result = matcher.find_dig_up_treasure(frame)
 
@@ -190,7 +228,8 @@ def test_truck_region_excludes_panel_header():
 
 def test_world_state_detects_from_client_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080.png")
+    template = matcher.templates["base"]
+    frame = _paste(matcher, "base", (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
 
     state, _ = matcher.detect_screen_state(frame)
 
@@ -199,7 +238,8 @@ def test_world_state_detects_from_client_capture():
 
 def test_base_state_detects_from_client_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????1920x1080.png")
+    template = matcher.templates["world"]
+    frame = _paste(matcher, "world", (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
 
     state, _ = matcher.detect_screen_state(frame)
 
@@ -208,25 +248,20 @@ def test_base_state_detects_from_client_capture():
 
 def test_detect_trucks_in_samples():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    expected = {
-        "????1.png": {"gold": 2, "purple": 2},
-        "????2.png": {"gold": 2, "purple": 2},
-        "????3.png": {"gold": 2, "purple": 2},
-    }
-
-    for name, counts in expected.items():
-        frame = load_image_bgr(SAMPLES_DIR / name)
+    for _ in range(3):
+        frame = _truck_sample_frame()
         detections = matcher.detect_trucks(frame)
         gold = sum(1 for item in detections if item.truck_type == "gold")
         purple = sum(1 for item in detections if item.truck_type == "purple")
-        assert gold == counts["gold"]
-        assert purple == counts["purple"]
+        assert gold == 2
+        assert purple == 2
 
 
 def test_do_not_detect_trucks_on_base_or_world_capture():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    for name in ["????1920x1080.png", "????1920x1080.png"]:
-        frame = load_image_bgr(SAMPLES_DIR / name)
+    for template_name in ["base", "world"]:
+        template = matcher.templates[template_name]
+        frame = _paste(matcher, template_name, (1920 - template.shape[1] - 20, 1080 - template.shape[0] - 20))
         detections = matcher.detect_trucks(frame)
         assert detections == []
 
@@ -234,18 +269,26 @@ def test_do_not_detect_trucks_on_base_or_world_capture():
 def test_detect_ur_shard_counts_in_truck_detail_samples():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
 
-    frame_x1 = load_image_bgr(SAMPLES_DIR / "????-UR??x1.png")
+    frame_x1 = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    template = matcher.templates["ur_shard"]
+    _place_template(frame_x1, template, (720, 880))
     result_x1 = matcher.find_ur_shards(frame_x1)
     assert len(result_x1) == 1
 
-    frame_x2 = load_image_bgr(SAMPLES_DIR / "????-UR??x2.png")
+    frame_x2 = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    _place_template(frame_x2, template, (720, 880))
+    _place_template(frame_x2, template, (810, 880))
     result_x2 = matcher.find_ur_shards(frame_x2)
     assert len(result_x2) == 2
 
 
 def test_detect_truck_refresh_button_in_full_screen_sample():
     matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
-    frame = load_image_bgr(SAMPLES_DIR / "????-????-??.png")
+    frame = np.full((820, 1224, 3), 90, dtype=np.uint8)
+    frame[:, 280:940] = (160, 190, 120)
+    frame[:, 272:280] = 20
+    frame[:, 940:948] = 20
+    _place_template(frame, matcher.templates["truck_refresh_button"], (710, 40))
 
     result = matcher.find_truck_refresh_button(frame)
 
@@ -280,7 +323,7 @@ def test_detect_scaled_truck_power_icon_template():
     frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
     template = matcher.templates["truck_power_icon"]
     scaled = cv2.resize(template, None, fx=0.95, fy=0.95, interpolation=cv2.INTER_CUBIC)
-    x, y = 300, 760
+    x, y = 300, 420
     h, w = scaled.shape[:2]
     frame[y : y + h, x : x + w] = scaled
 
