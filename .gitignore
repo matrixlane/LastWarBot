@@ -10,8 +10,8 @@ __pycache__/
 build/
 dist/
 release/
-releases/v*/
 releases/*/package/
+releases/*/*.zip
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
