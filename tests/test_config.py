@@ -29,6 +29,8 @@ def test_dig_up_treasure_config_uses_openclaw_message_enabled(tmp_path):
                 "  alert_cooldown_seconds: 30",
                 "  sound_enabled: false",
                 "  openclaw_message_enabled: false",
+                "  auto_execute_enabled: false",
+                "  travel_buffer_seconds: 2.5",
             )
         ),
         encoding="utf-8",
@@ -39,6 +41,8 @@ def test_dig_up_treasure_config_uses_openclaw_message_enabled(tmp_path):
     assert config.dig_up_treasure.alert_cooldown_seconds == 30
     assert config.dig_up_treasure.sound_enabled is False
     assert config.dig_up_treasure.openclaw_message_enabled is False
+    assert config.dig_up_treasure.auto_execute_enabled is False
+    assert config.dig_up_treasure.travel_buffer_seconds == 2.5
 
 
 def test_alliance_help_config_uses_click_cooldown_seconds(tmp_path):
@@ -67,6 +71,8 @@ def test_startup_config_uses_openclaw_message_enabled(tmp_path):
             (
                 "startup:",
                 "  openclaw_message_enabled: true",
+                "  auto_f5_after_bot_launch_enabled: true",
+                "  auto_f5_after_bot_launch_delay_seconds: 2.0",
             )
         ),
         encoding="utf-8",
@@ -75,6 +81,33 @@ def test_startup_config_uses_openclaw_message_enabled(tmp_path):
     config = load_config(path)
 
     assert config.startup.openclaw_message_enabled is True
+    assert config.startup.auto_f5_after_bot_launch_enabled is True
+    assert config.startup.auto_f5_after_bot_launch_delay_seconds == 2.0
+
+
+def test_window_config_loads_auto_launch_settings(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "\n".join(
+            (
+                "window:",
+                "  auto_launch_game: true",
+                "  executable_path: D:/Games/LastWar/LastWar.exe",
+                "  search_roots:",
+                "    - D:/Games",
+                "    - E:/Android",
+                "  launch_retry_cooldown_seconds: 45",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.window.auto_launch_game is True
+    assert config.window.executable_path == "D:/Games/LastWar/LastWar.exe"
+    assert config.window.search_roots == ["D:/Games", "E:/Android"]
+    assert config.window.launch_retry_cooldown_seconds == 45
 
 
 def test_share_target_prioritizes_r4r5_before_alliance():

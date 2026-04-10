@@ -54,13 +54,13 @@
 - `truck.share_wait_seconds`
 - `truck.share_confirm_wait_seconds`
 - `openclaw.enabled`
-- `openclaw.startup_enabled`
-- `openclaw.excavator_enabled`
+- `startup.openclaw_message_enabled`
+- `dig_up_treasure.openclaw_message_enabled`
 
 ### 日志
 
 - 控制台最新日志：
-  - `logs/LastWarBot_latest.log`
+  - `logs/Console_latest.log`
 - 事件日志：
   - `logs/events/alliance_help.YYYYMMDD.log`
   - `logs/events/dig_up_treasure.YYYYMMDD.log`
@@ -88,4 +88,4 @@
 - 本项目仍属于视觉自动化工具，不是直接读取游戏内部数据
 - 不同分辨率、DPI 缩放、界面遮挡和动画效果仍可能影响识别稳定性
 - 如遇异常，请优先查看：
-  - `logs/LastWarBot_latest.log`
+  - `logs/Console_latest.log`

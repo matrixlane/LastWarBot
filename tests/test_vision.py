@@ -76,6 +76,22 @@ def _truck_sample_frame() -> np.ndarray:
     return frame
 
 
+def _dig_ui_frame() -> np.ndarray:
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    purple = _hsv_color(150, 180, 220)
+    green = _hsv_color(60, 200, 220)
+    blue = _hsv_color(105, 190, 235)
+    cv2.rectangle(frame, (760, 160), (1160, 360), (245, 245, 245), -1)
+    cv2.rectangle(frame, (780, 500), (1180, 930), (245, 245, 245), -1)
+    cv2.circle(frame, (960, 520), 52, purple, -1)
+    cv2.circle(frame, (960, 520), 30, green, -1)
+    cv2.rectangle(frame, (940, 500), (980, 540), (255, 255, 255), -1)
+    cv2.circle(frame, (960, 720), 58, green, -1)
+    cv2.rectangle(frame, (936, 696), (984, 744), (255, 255, 255), -1)
+    cv2.rectangle(frame, (900, 790), (1040, 880), blue, -1)
+    return frame
+
+
 def _detection(template_name: str, confidence: float, center: tuple[int, int] = (960, 820)) -> DetectionResult:
     return DetectionResult(
         template_name=template_name,
@@ -197,6 +213,36 @@ def test_default_dig_up_treasure_region_covers_main_map():
     config = MatchingConfig()
 
     assert config.regions["dig_up_treasure"] == (0.34, 0.68, 0.66, 0.98)
+
+
+def test_default_dig_regions_cover_action_flow():
+    config = MatchingConfig()
+
+    assert config.regions["dig_chat_share_card"] == (0.35, 0.20, 0.66, 0.90)
+    assert config.regions["dig_action_icon"] == (0.36, 0.28, 0.64, 0.66)
+    assert config.regions["dig_green_button"] == (0.34, 0.54, 0.66, 0.82)
+    assert config.regions["dig_squad_dialog"] == (0.30, 0.40, 0.70, 0.94)
+
+
+
+def test_find_dig_flow_controls_from_color_and_dialog_shapes():
+    matcher = TemplateMatcher(MatchingConfig(), root_dir=ROOT)
+    frame = _dig_ui_frame()
+
+    action = matcher.find_dig_action_icon(frame)
+    green = matcher.find_dig_green_button(frame)
+    progress_dialog = matcher.find_dig_progress_dialog(frame)
+    squad_dialog = matcher.find_dig_squad_dialog(frame)
+    expedition = matcher.find_dig_expedition_button(frame)
+    first_squad = matcher.infer_first_dig_squad_center(frame)
+
+    assert action is not None
+    assert green is not None
+    assert progress_dialog is not None
+    assert squad_dialog is not None
+    assert expedition is not None
+    assert first_squad[0] < expedition.center[0]
+    assert first_squad[1] > squad_dialog[3] - 40
 
 
 def test_find_dig_up_treasure_with_slight_rotation_uses_fallback():

@@ -2,9 +2,12 @@
 
 import ctypes
 import os
+import string
+import subprocess
 import time
 from ctypes import wintypes
 from dataclasses import dataclass
+from pathlib import Path
 
 import psutil
 
@@ -22,6 +25,18 @@ WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 MK_LBUTTON = 0x0001
+_SEARCH_SKIP_DIRS = {
+    "$recycle.bin",
+    ".git",
+    ".pytest_cache",
+    ".venv",
+    "programdata",
+    "system volume information",
+    "temp",
+    "tmp",
+    "windows",
+    "windowsapps",
+}
 
 
 @dataclass(slots=True)
@@ -49,9 +64,12 @@ class MONITORINFO(ctypes.Structure):
 
 
 class WindowManager:
-    def __init__(self, config: WindowConfig) -> None:
+    def __init__(self, config: WindowConfig, root_dir: Path | None = None) -> None:
         self.config = config
+        self.root_dir = root_dir
         self._user32 = ctypes.windll.user32
+        self._cached_executable_path = self._normalize_path(config.executable_path) if config.executable_path else None
+        self._last_launch_attempt_at = 0.0
         self._set_dpi_awareness()
 
     def _set_dpi_awareness(self) -> None:
@@ -75,6 +93,52 @@ class WindowManager:
 
     def game_pids(self) -> set[int]:
         return {proc.info["pid"] for proc in psutil.process_iter(["pid", "name"]) if proc.info["name"] == self.config.process_name}
+
+    def launch_game_if_missing(self) -> Path | None:
+        if self.is_process_running() or not self.config.auto_launch_game:
+            return None
+
+        now = time.monotonic()
+        if now - self._last_launch_attempt_at < max(1.0, self.config.launch_retry_cooldown_seconds):
+            return None
+        self._last_launch_attempt_at = now
+
+        executable = self.find_game_executable()
+        if executable is None:
+            return None
+
+        try:
+            os.startfile(str(executable))
+        except AttributeError:
+            subprocess.Popen([str(executable)], cwd=str(executable.parent))
+        except OSError:
+            subprocess.Popen([str(executable)], cwd=str(executable.parent))
+        self._cached_executable_path = executable
+        return executable
+
+    def find_game_executable(self) -> Path | None:
+        candidates: list[Path] = []
+        if self._cached_executable_path is not None:
+            candidates.append(self._cached_executable_path)
+        if self.config.executable_path:
+            candidates.append(self._normalize_path(self.config.executable_path))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate).casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            if self._is_valid_executable(candidate):
+                self._cached_executable_path = candidate
+                return candidate
+
+        for root in self._iter_search_roots():
+            executable = self._search_executable_in_root(root)
+            if executable is not None:
+                self._cached_executable_path = executable
+                return executable
+        return None
 
     def find_game_window(self) -> WindowHandle | None:
         pids = self.game_pids()
@@ -224,3 +288,63 @@ class WindowManager:
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         )
         time.sleep(0.08)
+
+    def _iter_search_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        configured_roots = [self._normalize_path(value) for value in self.config.search_roots]
+        if configured_roots:
+            roots.extend(configured_roots)
+        else:
+            if self.root_dir is not None:
+                roots.append(self.root_dir)
+            for env_name in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA", "USERPROFILE"):
+                value = os.environ.get(env_name)
+                if value:
+                    roots.append(Path(value))
+            roots.extend(self._windows_drive_roots())
+
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for root in roots:
+            key = str(root).casefold()
+            if key in seen or not root.exists():
+                continue
+            seen.add(key)
+            deduped.append(root)
+        return deduped
+
+    def _search_executable_in_root(self, root: Path) -> Path | None:
+        if root.is_file():
+            return root if self._is_valid_executable(root) else None
+
+        try:
+            for current_root, dir_names, file_names in os.walk(root, topdown=True):
+                dir_names[:] = [name for name in dir_names if name.casefold() not in _SEARCH_SKIP_DIRS]
+                if self.config.process_name in file_names:
+                    candidate = Path(current_root) / self.config.process_name
+                    if self._is_valid_executable(candidate):
+                        return candidate
+        except OSError:
+            return None
+        return None
+
+    def _normalize_path(self, raw_path: str | Path) -> Path:
+        path = Path(os.path.expandvars(os.path.expanduser(str(raw_path))))
+        if not path.is_absolute() and self.root_dir is not None:
+            path = self.root_dir / path
+        return path
+
+    def _is_valid_executable(self, path: Path) -> bool:
+        return path.is_file() and path.name.casefold() == self.config.process_name.casefold()
+
+    def _windows_drive_roots(self) -> list[Path]:
+        try:
+            mask = ctypes.windll.kernel32.GetLogicalDrives()
+        except Exception:
+            return []
+
+        roots: list[Path] = []
+        for index, letter in enumerate(string.ascii_uppercase):
+            if mask & (1 << index):
+                roots.append(Path(f"{letter}:\\"))
+        return roots

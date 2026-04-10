@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import contextlib
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 
 import cv2
@@ -123,8 +124,68 @@ def parse_level_text(text: str) -> int | None:
         return None
 
 
+def parse_duration_text(text: str) -> int | None:
+    if not text:
+        return None
+    normalized = normalize_ocr_text(text)
+    normalized = normalized.replace("\uFF1A", ":").replace(";", ":").replace(".", ":")
+    cleaned = re.sub(r"[^0-9:]", "", normalized).strip(":")
+    cleaned = re.sub(r":{2,}", ":", cleaned)
+    if not cleaned:
+        return None
+    if ":" in cleaned:
+        parts = [part for part in cleaned.split(":") if part]
+        try:
+            values = [int(part) for part in parts]
+        except ValueError:
+            values = []
+        if len(values) == 3:
+            return values[0] * 3600 + values[1] * 60 + values[2]
+        if len(values) == 2:
+            return values[0] * 60 + values[1]
+        if len(values) == 1:
+            return values[0]
+    digits = re.sub(r"\D", "", cleaned)
+    if not digits:
+        return None
+    if len(digits) <= 2:
+        return int(digits)
+    if len(digits) == 3:
+        return int(digits[0]) * 60 + int(digits[1:])
+    if len(digits) == 4:
+        return int(digits[:2]) * 60 + int(digits[2:])
+    if len(digits) == 5:
+        return int(digits[0]) * 3600 + int(digits[1:3]) * 60 + int(digits[3:])
+    if len(digits) == 6:
+        return int(digits[:2]) * 3600 + int(digits[2:4]) * 60 + int(digits[4:])
+    return None
+
+
+def parse_coordinate_text(text: str) -> tuple[int, int] | None:
+    if not text:
+        return None
+    normalized = text.upper().replace("\uFF1A", ":")
+    x_match = re.search(r"X\s*[: ]\s*(\d{1,3})", normalized)
+    y_match = re.search(r"Y\s*[: ]\s*(\d{1,3})", normalized)
+    if x_match and y_match:
+        x = int(x_match.group(1))
+        y = int(y_match.group(1))
+        if 0 <= x <= 999 and 0 <= y <= 999:
+            return x, y
+    compact = re.sub(r"\s+", "", normalized)
+    x_match = re.search(r"X[:]?(\d{1,3})", compact)
+    y_match = re.search(r"Y[:]?(\d{1,3})", compact)
+    if x_match and y_match:
+        x = int(x_match.group(1))
+        y = int(y_match.group(1))
+        if 0 <= x <= 999 and 0 <= y <= 999:
+            return x, y
+    return None
+
+
 def normalize_dialog_text(text: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", text.upper())
+    normalized = unicodedata.normalize("NFKC", text).upper()
+    return "".join(char for char in normalized if unicodedata.category(char)[:1] in {"L", "N"})
 
 
 def normalize_truck_player_name(text: str) -> str:
@@ -299,26 +360,27 @@ class OcrRegionReader:
         scored_candidates: list[tuple[str, float, float]] = []
         candidates = _truck_power_row_regions(panel_rect)
         for index, region in enumerate(candidates):
-            crop = self._crop(frame, self._clip_region(frame, region))
-            if crop.size == 0:
+            base_crop = self._crop(frame, self._clip_region(frame, region))
+            if base_crop.size == 0:
                 continue
-            for text, confidence in self._ocr_candidates_with_variants(
-                engine,
-                crop,
-                scale=5,
-                merge_lines=False,
-                allow_fallback_variants=index > 0,
-            ):
-                value = parse_numeric_text(text)
-                if value is None:
-                    continue
-                normalized = normalize_ocr_text(text)
-                score = len(re.sub(r"\D", "", normalized)) + confidence
-                if any(unit in normalized for unit in ("K", "M", "B")):
-                    score += 3
-                if "." in normalized:
-                    score += 1
-                scored_candidates.append((normalized.upper(), value, score))
+            for crop in self._truck_power_panel_candidate_crops(base_crop):
+                for text, confidence in self._ocr_candidates_with_variants(
+                    engine,
+                    crop,
+                    scale=5,
+                    merge_lines=False,
+                    allow_fallback_variants=index > 0,
+                ):
+                    value = parse_numeric_text(text)
+                    if value is None:
+                        continue
+                    normalized = normalize_ocr_text(text)
+                    score = len(re.sub(r"\D", "", normalized)) + confidence
+                    if any(unit in normalized for unit in ("K", "M", "B")):
+                        score += 3
+                    if "." in normalized:
+                        score += 1
+                    scored_candidates.append((normalized.upper(), value, score))
         if not scored_candidates:
             return None
         normalized_texts = {token for token, _, _ in scored_candidates}
@@ -339,6 +401,20 @@ class OcrRegionReader:
                 best_token = token
                 best_value = value
         return best_value
+
+    def _truck_power_panel_candidate_crops(self, crop: np.ndarray) -> list[np.ndarray]:
+        if crop.size == 0:
+            return []
+        _, width = crop.shape[:2]
+        min_width = max(36, int(round(width * 0.55)))
+        crops = [crop]
+        for ratio in (0.18, 0.24):
+            left = int(round(width * ratio))
+            if left <= 0 or width - left < min_width:
+                continue
+            # Retry on a right-focused crop so the battle-power emblem does not become a leading digit.
+            crops.append(crop[:, left:])
+        return crops
 
     def extract_truck_player_identity_from_panel(
         self, frame: np.ndarray, panel_rect: tuple[int, int, int, int]
@@ -452,6 +528,7 @@ class OcrRegionReader:
         except Exception as exc:
             self._disabled_reason = str(exc)
             return None
+        region = self._clip_region(frame, region)
         crop = self._crop(frame, region)
         if crop.size == 0:
             return None
@@ -476,6 +553,184 @@ class OcrRegionReader:
             best_confidence = confidence
             best_center = (region[0] + center[0], region[1] + center[1])
         return best_center
+
+    def find_text_centers_in_region(
+        self,
+        frame: np.ndarray,
+        region: tuple[int, int, int, int],
+        required_tokens: tuple[str, ...],
+    ) -> list[tuple[int, int]]:
+        if self._disabled_reason:
+            return []
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return []
+        region = self._clip_region(frame, region)
+        crop = self._crop(frame, region)
+        if crop.size == 0:
+            return []
+        scale = 2
+        enlarged = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        try:
+            with self._engine_lock:
+                result = engine.ocr(enlarged, cls=False)
+        except Exception:
+            return []
+        normalized_tokens = tuple(normalize_dialog_text(token) for token in required_tokens)
+        matches: list[tuple[float, int, int]] = []
+        for text, confidence, center in self._extract_text_boxes(result, scale=scale):
+            normalized = normalize_dialog_text(text)
+            if not normalized:
+                continue
+            if not all(token in normalized for token in normalized_tokens):
+                continue
+            matches.append((confidence, region[0] + center[0], region[1] + center[1]))
+        matches.sort(key=lambda item: (item[2], item[0]), reverse=True)
+        centers: list[tuple[int, int]] = []
+        for _, x, y in matches:
+            candidate = (x, y)
+            if any(abs(candidate[0] - existing[0]) <= 12 and abs(candidate[1] - existing[1]) <= 12 for existing in centers):
+                continue
+            centers.append(candidate)
+        return centers
+
+    def extract_text_candidates_in_region(
+        self,
+        frame: np.ndarray,
+        region: tuple[int, int, int, int],
+        scale: int = 4,
+    ) -> list[tuple[str, float]]:
+        if self._disabled_reason:
+            return []
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return []
+        crop = self._crop(frame, self._clip_region(frame, region))
+        if crop.size == 0:
+            return []
+        candidates: list[tuple[str, float]] = []
+        candidates.extend(
+            self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=scale,
+                merge_lines=False,
+                allow_fallback_variants=True,
+            )
+        )
+        candidates.extend(
+            self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=scale,
+                merge_lines=True,
+                allow_fallback_variants=True,
+            )
+        )
+        return candidates
+
+    def extract_level_from_region(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> int | None:
+        best_level: int | None = None
+        best_score = -1.0
+        seen: set[str] = set()
+        for raw_text, confidence in self.extract_text_candidates_in_region(frame, region, scale=5):
+            text_key = raw_text.strip()
+            if not text_key or text_key in seen:
+                continue
+            seen.add(text_key)
+            level = parse_level_text(raw_text)
+            if level is None:
+                continue
+            score = confidence + len(re.sub(r"\D", "", normalize_ocr_text(raw_text))) * 0.3
+            if "LV" in raw_text.upper():
+                score += 1.0
+            if score > best_score:
+                best_score = score
+                best_level = level
+        return best_level
+
+    def extract_coordinate_from_region(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> tuple[int, int] | None:
+        best_value: tuple[int, int] | None = None
+        best_score = -1.0
+        seen: set[str] = set()
+        for raw_text, confidence in self.extract_text_candidates_in_region(frame, region, scale=4):
+            text_key = raw_text.strip()
+            if not text_key or text_key in seen:
+                continue
+            seen.add(text_key)
+            coordinate = parse_coordinate_text(raw_text)
+            if coordinate is None:
+                continue
+            digits = re.sub(r"\D", "", raw_text)
+            score = confidence + len(digits) * 0.25
+            upper = raw_text.upper()
+            if "X" in upper:
+                score += 1.0
+            if "Y" in upper:
+                score += 1.0
+            if score > best_score:
+                best_score = score
+                best_value = coordinate
+        return best_value
+
+    def extract_duration_seconds(self, frame: np.ndarray, region: tuple[int, int, int, int]) -> int | None:
+        if self._disabled_reason:
+            return None
+        try:
+            engine = self._get_engine()
+        except Exception as exc:
+            self._disabled_reason = str(exc)
+            return None
+        crop = self._crop(frame, self._clip_region(frame, region))
+        if crop.size == 0:
+            return None
+        candidates: list[tuple[str, float]] = []
+        candidates.extend(
+            self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=4,
+                merge_lines=False,
+                allow_fallback_variants=True,
+            )
+        )
+        candidates.extend(
+            self._ocr_candidates_with_variants(
+                engine,
+                crop,
+                scale=4,
+                merge_lines=True,
+                allow_fallback_variants=True,
+            )
+        )
+        best_value: int | None = None
+        best_score = -1.0
+        seen: set[str] = set()
+        for raw_text, confidence in candidates:
+            text_key = raw_text.strip()
+            if not text_key or text_key in seen:
+                continue
+            seen.add(text_key)
+            value = parse_duration_text(raw_text)
+            if value is None:
+                continue
+            digits = re.sub(r"\D", "", normalize_ocr_text(raw_text))
+            score = confidence + len(digits) * 0.4
+            if ":" in raw_text or "\uFF1A" in raw_text:
+                score += 2.5
+            if len(digits) >= 4:
+                score += 1.0
+            if value > 24 * 3600:
+                score -= 5.0
+            if score <= best_score:
+                continue
+            best_score = score
+            best_value = value
+        return best_value
 
     def _get_engine(self):
         with self._engine_lock:

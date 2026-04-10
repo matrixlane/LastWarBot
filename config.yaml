@@ -4,6 +4,10 @@ loop:
 window:
   process_name: "LastWar.exe"
   title_contains: "Last War"
+  auto_launch_game: true
+  executable_path: ""
+  search_roots: []
+  launch_retry_cooldown_seconds: 30.0
   client_width: 1920
   client_height: 1080
   min_client_width: 1024
@@ -28,16 +32,23 @@ matching:
   regions:
     alliance_help_icon: [0.72, 0.58, 0.99, 0.92]
     dig_up_treasure: [0.34, 0.68, 0.66, 0.98]
+    dig_chat_share_card: [0.35, 0.20, 0.66, 0.90]
+    dig_action_icon: [0.36, 0.28, 0.64, 0.66]
+    dig_green_button: [0.34, 0.54, 0.66, 0.82]
+    dig_progress_dialog: [0.34, 0.10, 0.66, 0.40]
+    dig_squad_dialog: [0.30, 0.40, 0.70, 0.94]
     station: [0.00, 0.00, 0.60, 0.60]
     station_zoomed_out_icon: [0.00, 0.00, 0.35, 0.35]
     station_zoomed_out_full: [0.00, 0.00, 0.40, 0.40]
     ur_shard: [0.00, 0.72, 0.75, 1.00]
-    truck_refresh_button: [0.58, 0.00, 0.72, 0.12]
+    truck_refresh_button: [0.90, 0.00, 1.00, 0.14]
     truck_power_icon: [0.08, 0.32, 0.44, 0.64]
 
 # 1 Startup
 startup:
   openclaw_message_enabled: false
+  auto_f5_after_bot_launch_enabled: true
+  auto_f5_after_bot_launch_delay_seconds: 7.0
   
 # 2 Player Info
 player_info:
@@ -51,7 +62,7 @@ player_info:
     food: [72, 0, 246, 54]
     iron: [214, 0, 402, 54]
     gold: [366, 0, 556, 54]
-    power: [80, 44, 292, 112]
+    power: [80, 44, 352, 116]
     diamonds: [1788, 0, 1918, 56]
 
 # 3 Alliance Help
@@ -64,25 +75,35 @@ dig_up_treasure:
   alert_cooldown_seconds: 60.0
   sound_enabled: true
   openclaw_message_enabled: true
+  auto_execute_enabled: true
+  auto_execute_cooldown_seconds: 30
+  click_settle_seconds: 0.8
+  panel_timeout_seconds: 12
+  travel_buffer_seconds: 1
+  countdown_poll_interval_seconds: 1
+  finish_wait_seconds: 2
+  max_task_seconds: 600
 
 # 5 Truck
 truck:
-  min_target_power_m: 15.0
+  min_target_power_m: 16.0
   min_ur_shards: 2
   alert_enabled: true
   alert_min_ur_shards: 3
   r4r5_share:
     enabled: true
-    min_ur_shards: 4
-  alliance_share:
-    enabled: true
     min_ur_shards: 3
-  max_refresh_attempts: 999
+  alliance_share:
+    enabled: false
+    min_ur_shards: 2
+  max_refresh_attempts: 99
+  restart_refresh_cycle_enabled: true
+  restart_refresh_cycle_interval_minutes: 10
   inspection_wait_seconds: 0.2
   ur_shard_confirm_interval_seconds: 0.2
   share_wait_seconds: 0.5
   share_confirm_wait_seconds: 0.5
-  refresh_wait_seconds: 1.0
+  refresh_wait_seconds: 1.5
   enter_wait_seconds: 2
   enter_retry_count: 2
   sample_attempts: 1

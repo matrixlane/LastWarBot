@@ -1,7 +1,8 @@
 import numpy as np
+import pytest
 
 from lastwar_bot.config import PlayerInfoConfig
-from lastwar_bot.ocr import OcrRegionReader, normalize_ocr_text, parse_numeric_text
+from lastwar_bot.ocr import OcrRegionReader, normalize_dialog_text, normalize_ocr_text, parse_duration_text, parse_numeric_text
 from lastwar_bot.models import PlayerStats
 
 
@@ -18,6 +19,17 @@ def test_parse_numeric_text_supports_suffixes_and_commas():
 
 def test_parse_numeric_text_supports_grouped_periods():
     assert parse_numeric_text("56.650.958") == 56_650_958
+
+
+def test_parse_duration_text_supports_multiple_formats():
+    assert parse_duration_text("00:02:58") == 178
+    assert parse_duration_text("2:58") == 178
+    assert parse_duration_text("18") == 18
+    assert parse_duration_text("000006") == 6
+
+
+def test_normalize_dialog_text_preserves_cjk_tokens_for_chat_matching():
+    assert normalize_dialog_text("挖掘寶藏 [戰區 #1972 X:482 Y:647]") == "挖掘寶藏戰區1972X482Y647"
 
 
 def test_resolve_region_scales_absolute_coordinates_with_frame_size():
@@ -81,3 +93,24 @@ def test_extract_candidates_merges_split_resource_tokens():
     candidates = reader._extract_candidates(result)
 
     assert any(text == "2.4M" for text, _ in candidates)
+
+
+def test_extract_truck_power_from_panel_prefers_trimmed_candidate_when_icon_bleeds_into_ocr(monkeypatch: pytest.MonkeyPatch):
+    reader = OcrRegionReader(PlayerInfoConfig())
+    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+    panel_rect = (0, 0, 320, 240)
+    base_crop = np.zeros((48, 120, 3), dtype=np.uint8)
+
+    monkeypatch.setattr(reader, "_get_engine", lambda: object())
+    monkeypatch.setattr(reader, "_clip_region", lambda _frame, region: region)
+    monkeypatch.setattr(reader, "_crop", lambda _frame, _region: base_crop)
+
+    def fake_candidates(_engine, crop, scale=5, merge_lines=False, allow_fallback_variants=True):
+        if crop.shape[1] == base_crop.shape[1]:
+            return [("732.5M", 0.99)]
+        return [("32.5M", 0.95)]
+
+    monkeypatch.setattr(reader, "_ocr_candidates_with_variants", fake_candidates)
+
+    assert reader.extract_truck_power_from_panel(frame, panel_rect) == 32_500_000
+

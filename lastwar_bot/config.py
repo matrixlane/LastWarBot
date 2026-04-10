@@ -15,11 +15,16 @@ DEFAULT_MATCHING_REGIONS: dict[str, tuple[float, float, float, float]] = {
     "screen_state": (0.75, 0.75, 1.00, 1.00),
     "alliance_help_icon": (0.72, 0.58, 0.99, 0.92),
     "dig_up_treasure": (0.34, 0.68, 0.66, 0.98),
+    "dig_chat_share_card": (0.35, 0.20, 0.66, 0.90),
+    "dig_action_icon": (0.36, 0.28, 0.64, 0.66),
+    "dig_green_button": (0.34, 0.54, 0.66, 0.82),
+    "dig_progress_dialog": (0.34, 0.10, 0.66, 0.40),
+    "dig_squad_dialog": (0.30, 0.40, 0.70, 0.94),
     "station": (0.00, 0.00, 0.60, 0.60),
     "station_zoomed_out_icon": (0.00, 0.00, 0.35, 0.35),
     "station_zoomed_out_full": (0.00, 0.00, 0.40, 0.40),
     "ur_shard": (0.00, 0.72, 0.75, 1.00),
-    "truck_refresh_button": (0.58, 0.00, 0.72, 0.12),
+    "truck_refresh_button": (0.90, 0.00, 1.00, 0.14),
     "truck_power_icon": (0.08, 0.32, 0.44, 0.64),
 }
 
@@ -29,7 +34,7 @@ DEFAULT_PLAYER_INFO_REGIONS: dict[str, tuple[int, int, int, int]] = {
     "food": (72, 0, 246, 54),
     "iron": (214, 0, 402, 54),
     "gold": (366, 0, 556, 54),
-    "power": (80, 44, 292, 112),
+    "power": (80, 44, 352, 116),
     "diamonds": (1788, 0, 1918, 56),
 }
 
@@ -43,6 +48,10 @@ class LoopConfig:
 class WindowConfig:
     process_name: str = "LastWar.exe"
     title_contains: str = "Last War"
+    auto_launch_game: bool = True
+    executable_path: str = ""
+    search_roots: list[str] = field(default_factory=list)
+    launch_retry_cooldown_seconds: float = 30.0
     client_width: int = 1920
     client_height: int = 1080
     min_client_width: int = 1024
@@ -77,6 +86,8 @@ class MatchingConfig:
 @dataclass(slots=True)
 class StartupConfig:
     openclaw_message_enabled: bool = False
+    auto_f5_after_bot_launch_enabled: bool = False
+    auto_f5_after_bot_launch_delay_seconds: float = 2.0
 
 
 @dataclass(slots=True)
@@ -90,6 +101,14 @@ class DigUpTreasureConfig:
     alert_cooldown_seconds: float = 60.0
     sound_enabled: bool = True
     openclaw_message_enabled: bool = True
+    auto_execute_enabled: bool = True
+    auto_execute_cooldown_seconds: float = 30.0
+    click_settle_seconds: float = 0.8
+    panel_timeout_seconds: float = 12.0
+    travel_buffer_seconds: float = 1.0
+    countdown_poll_interval_seconds: float = 1.0
+    finish_wait_seconds: float = 2.0
+    max_task_seconds: float = 600.0
 
 
 @dataclass(slots=True)
@@ -151,6 +170,8 @@ class TruckConfig:
     r4r5_share: TruckShareRule = field(default_factory=TruckShareRule)
     alliance_share: TruckShareRule = field(default_factory=TruckShareRule)
     max_refresh_attempts: int = 4
+    restart_refresh_cycle_enabled: bool = False
+    restart_refresh_cycle_interval_minutes: float = 10.0
     inspection_wait_seconds: float = 0.6
     ur_shard_confirm_interval_seconds: float = 0.3
     share_wait_seconds: float = 0.4

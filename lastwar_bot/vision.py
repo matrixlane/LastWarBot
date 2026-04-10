@@ -30,12 +30,15 @@ TRUCK_PANEL_RIGHT_SEARCH = (0.54, 0.82)
 TRUCK_PANEL_INSET_X = 6
 TRUCK_PANEL_TOP_INSET = 8
 TRUCK_PANEL_BOTTOM_INSET = 80
+TRUCK_PANEL_EDGE_PERCENTILE = 90
+TRUCK_PANEL_MIN_EDGE_COVERAGE = 0.18
+TRUCK_PANEL_SCORE_SMOOTHING = 9
 TRUCK_LIST_PANEL_REGION = (0.06, 0.16, 0.82, 0.94)
 TRUCK_REFRESH_BLUE_LOWER = (85, 80, 120)
 TRUCK_REFRESH_BLUE_UPPER = (125, 255, 255)
 TRUCK_REFRESH_BLUE_MIN_AREA = 300
-TRUCK_REFRESH_SEARCH_WIDTH = 180
-TRUCK_REFRESH_SEARCH_HEIGHT = 180
+TRUCK_REFRESH_WHITE_MIN_PIXELS = 45
+TRUCK_REFRESH_PANEL_REGION = (0.90, 0.00, 1.00, 0.14)
 SHARE_BUTTON_BLUE_LOWER = (85, 80, 120)
 SHARE_BUTTON_BLUE_UPPER = (125, 255, 255)
 SHARE_BUTTON_MIN_AREA = 700
@@ -55,6 +58,24 @@ DIG_UP_TREASURE_MAX_SIZE = 160
 DIG_UP_TREASURE_PROBE_DISTANCE_FACTOR = 0.45
 DIG_UP_TREASURE_STRONG_TEMPLATE_MARGIN = 0.10
 DIG_UP_TREASURE_STRONG_EDGE_MARGIN = 0.08
+DIG_ACTION_PURPLE_LOWER = (120, 40, 60)
+DIG_ACTION_PURPLE_UPPER = (175, 255, 255)
+DIG_ACTION_GREEN_LOWER = (35, 60, 100)
+DIG_ACTION_GREEN_UPPER = (95, 255, 255)
+DIG_ACTION_MIN_AREA = 900
+DIG_ACTION_WHITE_MIN_PIXELS = 12
+DIG_GREEN_BUTTON_LOWER = (35, 80, 110)
+DIG_GREEN_BUTTON_UPPER = (95, 255, 255)
+DIG_GREEN_BUTTON_MIN_AREA = 1200
+DIG_GREEN_BUTTON_WHITE_MIN_PIXELS = 16
+DIG_DIALOG_WHITE_MAX_SAT = 42
+DIG_DIALOG_WHITE_MIN_VAL = 180
+DIG_PROGRESS_DIALOG_MIN_AREA_RATIO = 0.08
+DIG_SQUAD_DIALOG_MIN_AREA_RATIO = 0.10
+DIG_EXPEDITION_BUTTON_REGION = (0.18, 0.64, 0.82, 0.98)
+DIG_PROGRESS_TIMER_REGION = (0.06, 0.08, 0.42, 0.26)
+DIG_FIRST_SQUAD_FALLBACK_X_RATIO = 0.41
+DIG_FIRST_SQUAD_FALLBACK_Y_RATIO = 0.90
 TRUCK_COLOR_RULES = {
     "purple": {
         "lower": (135, 40, 60),
@@ -337,10 +358,90 @@ class TemplateMatcher:
             )
         return None
 
+    def find_dig_action_icon(self, frame: np.ndarray) -> DetectionResult | None:
+        return self._find_colored_round_button(
+            frame,
+            self.config.regions["dig_action_icon"],
+            primary_bounds=(DIG_ACTION_PURPLE_LOWER, DIG_ACTION_PURPLE_UPPER),
+            secondary_bounds=(DIG_ACTION_GREEN_LOWER, DIG_ACTION_GREEN_UPPER),
+            template_name="dig_action_icon",
+            min_area=DIG_ACTION_MIN_AREA,
+            min_white_pixels=DIG_ACTION_WHITE_MIN_PIXELS,
+            target_y_ratio=0.52,
+        )
+
+    def find_dig_green_button(self, frame: np.ndarray) -> DetectionResult | None:
+        return self._find_colored_round_button(
+            frame,
+            self.config.regions["dig_green_button"],
+            primary_bounds=(DIG_GREEN_BUTTON_LOWER, DIG_GREEN_BUTTON_UPPER),
+            secondary_bounds=None,
+            template_name="dig_green_button",
+            min_area=DIG_GREEN_BUTTON_MIN_AREA,
+            min_white_pixels=DIG_GREEN_BUTTON_WHITE_MIN_PIXELS,
+            target_y_ratio=0.72,
+        )
+
+    def find_dig_progress_dialog(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+        return self._find_bright_dialog_rect(
+            frame,
+            self.config.regions["dig_progress_dialog"],
+            min_area_ratio=DIG_PROGRESS_DIALOG_MIN_AREA_RATIO,
+            target_y_ratio=0.34,
+        )
+
+    def infer_dig_progress_timer_region(self, frame: np.ndarray) -> tuple[int, int, int, int]:
+        dialog = self.find_dig_progress_dialog(frame)
+        if dialog is None:
+            roi_bgr, roi_origin = self._crop_color_normalized(frame, self.config.regions["dig_progress_dialog"])
+            dialog = (
+                roi_origin[0],
+                roi_origin[1],
+                roi_origin[0] + roi_bgr.shape[1],
+                roi_origin[1] + roi_bgr.shape[0],
+            )
+        return self._rect_within(dialog, DIG_PROGRESS_TIMER_REGION)
+
+    def find_dig_squad_dialog(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+        return self._find_bright_dialog_rect(
+            frame,
+            self.config.regions["dig_squad_dialog"],
+            min_area_ratio=DIG_SQUAD_DIALOG_MIN_AREA_RATIO,
+            target_y_ratio=0.56,
+        )
+
+    def find_dig_expedition_button(self, frame: np.ndarray) -> DetectionResult | None:
+        dialog = self.find_dig_squad_dialog(frame)
+        if dialog is None:
+            roi_bgr, roi_origin = self._crop_color_normalized(frame, self.config.regions["dig_squad_dialog"])
+            dialog = (
+                roi_origin[0],
+                roi_origin[1],
+                roi_origin[0] + roi_bgr.shape[1],
+                roi_origin[1] + roi_bgr.shape[0],
+            )
+        search_rect = self._rect_within(dialog, DIG_EXPEDITION_BUTTON_REGION)
+        return self._find_blue_button_in_rect(frame, search_rect, "dig_expedition_button", SHARE_BUTTON_MIN_AREA)
+
+    def infer_first_dig_squad_center(self, frame: np.ndarray) -> tuple[int, int]:
+        dialog = self.find_dig_squad_dialog(frame)
+        frame_height, frame_width = frame.shape[:2]
+        if dialog is None:
+            return (
+                int(frame_width * DIG_FIRST_SQUAD_FALLBACK_X_RATIO),
+                int(frame_height * DIG_FIRST_SQUAD_FALLBACK_Y_RATIO),
+            )
+        left, top, right, bottom = dialog
+        dialog_width = max(1, right - left)
+        dialog_height = max(1, bottom - top)
+        x = left + int(dialog_width * 0.08)
+        y = min(frame_height - 1, bottom + int(dialog_height * 0.23))
+        return x, y
+
     def find_ur_shards(self, frame: np.ndarray) -> list[DetectionResult]:
         frame_gray = self._to_gray(frame)
         roi = self.config.regions["ur_shard"]
-        panel_rect = self.detect_truck_panel(frame)
+        panel_rect = self._detect_truck_panel_legacy(frame)
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(
                 frame_gray.shape[1],
@@ -376,7 +477,7 @@ class TemplateMatcher:
 
     def find_truck_refresh_button(self, frame: np.ndarray) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
-        panel_rect = self.detect_truck_panel(frame)
+        panel_rect = self._detect_truck_panel_legacy(frame)
         roi = self.config.regions["truck_refresh_button"]
         if panel_rect is not None:
             roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
@@ -431,11 +532,14 @@ class TemplateMatcher:
         dialog = self.infer_share_dialog_rect(frame)
         return self._rect_within(dialog, SHARE_DIALOG_LIST_REGION)
 
+    def find_share_option_centers(self, frame: np.ndarray) -> list[tuple[int, int]]:
+        return self._detect_share_option_centers(frame, self.infer_share_list_region(frame))
+
     def infer_share_option_center(self, frame: np.ndarray, row_index: int) -> tuple[int, int]:
         left, top, right, bottom = self.infer_share_list_region(frame)
         width = max(1, right - left)
         height = max(1, bottom - top)
-        detected_centers = self._detect_share_option_centers(frame, (left, top, right, bottom))
+        detected_centers = self.find_share_option_centers(frame)
         if 0 <= row_index < len(detected_centers):
             self.last_share_option_method = "dynamic"
             return detected_centers[row_index]
@@ -473,49 +577,53 @@ class TemplateMatcher:
             return []
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        mask = cv2.inRange(gray, 225, 255)
-        kernel = np.ones((5, 5), dtype=np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
         roi_height, roi_width = gray.shape[:2]
-        min_width = roi_width * 0.65
         min_height = max(36, int(roi_height * 0.08))
         max_height = max(min_height + 1, int(roi_height * 0.26))
+        best_centers: list[tuple[int, int]] = []
 
-        boxes: list[tuple[int, int, int, int]] = []
-        for contour in contours:
-            x, y, w, h = cv2.boundingRect(contour)
-            if w < min_width:
-                continue
-            if h < min_height or h > max_height:
-                continue
-            boxes.append((x, y, w, h))
+        for threshold_low, min_width_ratio in ((225, 0.65), (210, 0.55), (195, 0.45)):
+            mask = cv2.inRange(gray, threshold_low, 255)
+            kernel = np.ones((5, 5), dtype=np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        boxes.sort(key=lambda item: item[1])
-        merged: list[tuple[int, int, int, int]] = []
-        for box in boxes:
-            if not merged:
-                merged.append(box)
-                continue
-            prev_x, prev_y, prev_w, prev_h = merged[-1]
-            x, y, w, h = box
-            prev_center_y = prev_y + prev_h / 2
-            center_y = y + h / 2
-            if abs(center_y - prev_center_y) <= max(prev_h, h) * 0.4:
-                new_left = min(prev_x, x)
-                new_top = min(prev_y, y)
-                new_right = max(prev_x + prev_w, x + w)
-                new_bottom = max(prev_y + prev_h, y + h)
-                merged[-1] = (new_left, new_top, new_right - new_left, new_bottom - new_top)
-            else:
-                merged.append(box)
+            min_width = roi_width * min_width_ratio
+            boxes: list[tuple[int, int, int, int]] = []
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                if w < min_width:
+                    continue
+                if h < min_height or h > max_height:
+                    continue
+                boxes.append((x, y, w, h))
 
-        centers: list[tuple[int, int]] = []
-        for x, y, w, h in merged:
-            centers.append((left + x + w // 2, top + y + h // 2))
-        return centers
+            boxes.sort(key=lambda item: item[1])
+            merged: list[tuple[int, int, int, int]] = []
+            for box in boxes:
+                if not merged:
+                    merged.append(box)
+                    continue
+                prev_x, prev_y, prev_w, prev_h = merged[-1]
+                x, y, w, h = box
+                prev_center_y = prev_y + prev_h / 2
+                center_y = y + h / 2
+                if abs(center_y - prev_center_y) <= max(prev_h, h) * 0.4:
+                    new_left = min(prev_x, x)
+                    new_top = min(prev_y, y)
+                    new_right = max(prev_x + prev_w, x + w)
+                    new_bottom = max(prev_y + prev_h, y + h)
+                    merged[-1] = (new_left, new_top, new_right - new_left, new_bottom - new_top)
+                else:
+                    merged.append(box)
+
+            centers = [(left + x + w // 2, top + y + h // 2) for x, y, w, h in merged]
+            if len(centers) > len(best_centers):
+                best_centers = centers
+            if len(best_centers) >= 2:
+                break
+        return best_centers
 
     def _find_dig_up_treasure_color_marker(
         self,
@@ -585,19 +693,151 @@ class TemplateMatcher:
             )
         return best
 
+    def _find_colored_round_button(
+        self,
+        frame: np.ndarray,
+        roi: tuple[float, float, float, float],
+        primary_bounds: tuple[tuple[int, int, int], tuple[int, int, int]],
+        secondary_bounds: tuple[tuple[int, int, int], tuple[int, int, int]] | None,
+        template_name: str,
+        min_area: int,
+        min_white_pixels: int,
+        target_y_ratio: float,
+    ) -> DetectionResult | None:
+        roi_bgr, roi_origin = self._crop_color_normalized(frame, roi)
+        if roi_bgr.size == 0:
+            return None
+        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+        primary_mask = cv2.inRange(
+            hsv,
+            np.array(primary_bounds[0], dtype=np.uint8),
+            np.array(primary_bounds[1], dtype=np.uint8),
+        )
+        if secondary_bounds is not None:
+            secondary_mask = cv2.inRange(
+                hsv,
+                np.array(secondary_bounds[0], dtype=np.uint8),
+                np.array(secondary_bounds[1], dtype=np.uint8),
+            )
+            mask = cv2.bitwise_or(primary_mask, secondary_mask)
+        else:
+            secondary_mask = np.zeros_like(primary_mask)
+            mask = primary_mask
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), dtype=np.uint8))
+        gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+        white_mask = cv2.inRange(gray, 205, 255)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        frame_scale = self._frame_scale(frame)
+        min_area_scaled = min_area * frame_scale * frame_scale
+        min_size = max(22, int(round(28 * frame_scale)))
+        max_size = max(min_size + 8, int(round(180 * frame_scale)))
+        roi_height, roi_width = roi_bgr.shape[:2]
+        target_x = roi_origin[0] + roi_width / 2.0
+        target_y = roi_origin[1] + roi_height * target_y_ratio
+        best: DetectionResult | None = None
+        best_score = -1.0
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            if area < min_area_scaled:
+                continue
+            if w < min_size or h < min_size:
+                continue
+            if w > max_size or h > max_size:
+                continue
+            aspect = w / max(h, 1)
+            if aspect < 0.55 or aspect > 1.45:
+                continue
+            primary_pixels = int(cv2.countNonZero(primary_mask[y : y + h, x : x + w]))
+            secondary_pixels = int(cv2.countNonZero(secondary_mask[y : y + h, x : x + w]))
+            white_pixels = int(cv2.countNonZero(white_mask[y : y + h, x : x + w]))
+            if white_pixels < min_white_pixels:
+                continue
+            abs_x = roi_origin[0] + x
+            abs_y = roi_origin[1] + y
+            center = (abs_x + w // 2, abs_y + h // 2)
+            distance_penalty = abs(center[0] - target_x) * 0.10 + abs(center[1] - target_y) * 0.12
+            score = area + primary_pixels * 1.5 + secondary_pixels * 2.0 + white_pixels * 1.3 - distance_penalty
+            if score <= best_score:
+                continue
+            best_score = score
+            best = DetectionResult(
+                template_name=template_name,
+                confidence=min(0.99, 0.35 + area / 2800.0 + white_pixels / 260.0),
+                center=center,
+                top_left=(abs_x, abs_y),
+                size=(w, h),
+                roi=(
+                    roi_origin[0],
+                    roi_origin[1],
+                    roi_origin[0] + roi_width,
+                    roi_origin[1] + roi_height,
+                ),
+            )
+        return best
+
+    def _find_bright_dialog_rect(
+        self,
+        frame: np.ndarray,
+        roi: tuple[float, float, float, float],
+        min_area_ratio: float,
+        target_y_ratio: float,
+    ) -> tuple[int, int, int, int] | None:
+        roi_bgr, roi_origin = self._crop_color_normalized(frame, roi)
+        if roi_bgr.size == 0:
+            return None
+        hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(
+            hsv,
+            np.array((0, 0, DIG_DIALOG_WHITE_MIN_VAL), dtype=np.uint8),
+            np.array((180, DIG_DIALOG_WHITE_MAX_SAT, 255), dtype=np.uint8),
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((11, 11), dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), dtype=np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        roi_height, roi_width = roi_bgr.shape[:2]
+        roi_area = max(1, roi_width * roi_height)
+        target_x = roi_origin[0] + roi_width / 2.0
+        target_y = roi_origin[1] + roi_height * target_y_ratio
+        best_rect: tuple[int, int, int, int] | None = None
+        best_score = -1.0
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = float(cv2.contourArea(contour))
+            if area < roi_area * min_area_ratio:
+                continue
+            if w < roi_width * 0.18 or h < roi_height * 0.16:
+                continue
+            aspect = w / max(h, 1)
+            if aspect < 0.45 or aspect > 2.6:
+                continue
+            abs_x = roi_origin[0] + x
+            abs_y = roi_origin[1] + y
+            center_x = abs_x + w / 2.0
+            center_y = abs_y + h / 2.0
+            distance_penalty = abs(center_x - target_x) * 0.16 + abs(center_y - target_y) * 0.20
+            score = area - distance_penalty
+            if score <= best_score:
+                continue
+            best_score = score
+            best_rect = (abs_x, abs_y, abs_x + w, abs_y + h)
+        return best_rect
+
     def _find_truck_refresh_button_blue(
         self, frame: np.ndarray, panel_rect: tuple[int, int, int, int] | None
     ) -> DetectionResult | None:
         if panel_rect is None:
             return None
         frame_height, frame_width = frame.shape[:2]
-        panel_left, panel_top, panel_right, panel_bottom = panel_rect
-        search_left = max(panel_left, panel_right - TRUCK_REFRESH_SEARCH_WIDTH)
-        search_top = max(panel_top, panel_top)
-        search_right = min(frame_width, panel_right)
-        search_bottom = min(frame_height, panel_top + TRUCK_REFRESH_SEARCH_HEIGHT)
+        search_left, search_top, search_right, search_bottom = self._rect_within(panel_rect, TRUCK_REFRESH_PANEL_REGION)
+        search_left = max(0, min(frame_width - 1, search_left))
+        search_top = max(0, min(frame_height - 1, search_top))
+        search_right = max(search_left + 1, min(frame_width, search_right))
+        search_bottom = max(search_top + 1, min(frame_height, search_bottom))
         if search_right <= search_left or search_bottom <= search_top:
             return None
+        panel_left, panel_top, panel_right, panel_bottom = panel_rect
         roi = frame[search_top:search_bottom, search_left:search_right]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(
@@ -607,6 +847,8 @@ class TemplateMatcher:
         )
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), dtype=np.uint8))
+        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        white_mask = cv2.inRange(gray_roi, 215, 255)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         best: DetectionResult | None = None
         best_score = -1.0
@@ -617,20 +859,26 @@ class TemplateMatcher:
                 continue
             if w < 18 or h < 18:
                 continue
-            if w > 96 or h > 96:
+            if w > 72 or h > 72:
+                continue
+            aspect = w / max(h, 1)
+            if aspect < 0.75 or aspect > 1.25:
+                continue
+            white_pixels = int(cv2.countNonZero(white_mask[y : y + h, x : x + w]))
+            if white_pixels < TRUCK_REFRESH_WHITE_MIN_PIXELS:
                 continue
             abs_x = search_left + x
             abs_y = search_top + y
             center = (abs_x + w // 2, abs_y + h // 2)
-            # Prefer compact blue blobs close to the panel's top-right corner.
-            distance_penalty = abs(panel_right - center[0]) * 0.05 + abs(center[1] - panel_top) * 0.03
-            score = area - distance_penalty
+            # Prefer square blue buttons with white arrows near the panel's top-right corner.
+            distance_penalty = abs(panel_right - center[0]) * 0.08 + abs(center[1] - panel_top) * 0.06
+            score = area + white_pixels * 3.0 - distance_penalty
             if score <= best_score:
                 continue
             best_score = score
             best = DetectionResult(
                 template_name="truck_refresh_button_blue",
-                confidence=min(0.99, area / 2000.0),
+                confidence=min(0.99, 0.35 + area / 2500.0 + white_pixels / 400.0),
                 center=center,
                 top_left=(abs_x, abs_y),
                 size=(w, h),
@@ -691,7 +939,7 @@ class TemplateMatcher:
             )
         return best
 
-    def detect_truck_panel(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+    def _detect_truck_panel_legacy(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
         frame_gray = self._to_gray(frame)
         height, width = frame_gray.shape[:2]
         band_top = height // 12
@@ -708,6 +956,42 @@ class TemplateMatcher:
         left_idx = left_start + int(np.argmax(score[left_start:left_end]))
         right_idx = right_start + int(np.argmax(score[right_start:right_end]))
 
+        if right_idx - left_idx < max(260, width // 5):
+            return None
+        left = max(0, left_idx + TRUCK_PANEL_INSET_X)
+        right = min(width, right_idx - TRUCK_PANEL_INSET_X)
+        top = min(height - 1, TRUCK_PANEL_TOP_INSET)
+        bottom = max(top + 1, height - TRUCK_PANEL_BOTTOM_INSET)
+        return (left, top, right, bottom)
+
+    def detect_truck_panel(self, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+        frame_gray = self._to_gray(frame)
+        height, width = frame_gray.shape[:2]
+        band_top = height // 12
+        band_bottom = max(band_top + 1, height - max(40, height // 8))
+        band = cv2.GaussianBlur(frame_gray[band_top:band_bottom, :], (5, 5), 0)
+        gradient = cv2.Sobel(band, cv2.CV_32F, 1, 0, ksize=3)
+        abs_gradient = np.abs(gradient)
+        column_score = np.mean(abs_gradient, axis=0)
+        if column_score.size == 0:
+            return None
+        threshold = float(np.percentile(column_score, TRUCK_PANEL_EDGE_PERCENTILE))
+        if threshold <= 0:
+            threshold = float(np.max(column_score))
+        edge_mask = abs_gradient >= max(1.0, threshold)
+        edge_coverage = np.mean(edge_mask, axis=0)
+        smoothing = np.ones(TRUCK_PANEL_SCORE_SMOOTHING, dtype=np.float32) / float(TRUCK_PANEL_SCORE_SMOOTHING)
+        smoothed_score = np.convolve(column_score, smoothing, mode="same")
+        boundary_score = smoothed_score * (1.0 + edge_coverage * 2.0)
+
+        left_start = int(width * TRUCK_PANEL_LEFT_SEARCH[0])
+        left_end = max(left_start + 1, int(width * TRUCK_PANEL_LEFT_SEARCH[1]))
+        right_start = int(width * TRUCK_PANEL_RIGHT_SEARCH[0])
+        right_end = max(right_start + 1, int(width * TRUCK_PANEL_RIGHT_SEARCH[1]))
+        left_idx = self._pick_truck_panel_boundary(boundary_score, edge_coverage, left_start, left_end)
+        right_idx = self._pick_truck_panel_boundary(boundary_score, edge_coverage, right_start, right_end)
+        if left_idx is None or right_idx is None:
+            return None
         if right_idx - left_idx < max(260, width // 5):
             return None
         left = max(0, left_idx + TRUCK_PANEL_INSET_X)
@@ -928,6 +1212,25 @@ class TemplateMatcher:
         search = self._to_edge(self._to_gray(frame)) if use_edge else self._to_gray(frame)
         finder = self._find_best_in_edge if use_edge else self._find_best_in_gray
         return finder(search, template_name, -1.0, roi=roi, multi_scale=True)
+
+    @staticmethod
+    def _pick_truck_panel_boundary(
+        boundary_score: np.ndarray,
+        edge_coverage: np.ndarray,
+        start: int,
+        end: int,
+    ) -> int | None:
+        if end <= start:
+            return None
+        window_score = boundary_score[start:end]
+        window_coverage = edge_coverage[start:end]
+        valid = np.where(window_coverage >= TRUCK_PANEL_MIN_EDGE_COVERAGE)[0]
+        if valid.size > 0:
+            best_local = int(valid[np.argmax(window_score[valid])])
+            return start + best_local
+        if window_score.size == 0:
+            return None
+        return start + int(np.argmax(window_score))
 
     @staticmethod
     def _pick_stronger_detection(
