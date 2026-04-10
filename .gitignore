@@ -9,7 +9,6 @@ __pycache__/
 # Packaging and local build outputs
 build/
 dist/
-release/
 releases/*/package/
 releases/*/*.zip
 *.egg-info/

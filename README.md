@@ -2,10 +2,11 @@
 
 `LastWarBot` 是一个面向 Windows 的《Last War: Survival》视觉自动化辅助工具。
 
-当前版本重点能力（`v0.2.3`）：
+当前版本重点能力（`v0.2.4`）：
 
-- 自动等待并检测 `LastWar.exe`
+- 自动等待、搜索并启动 `LastWar.exe`
 - 自动激活游戏窗口
+- 可选在 Bot 自动启动游戏后，等待界面加载并在基地自动执行一次 `F5`
 - 自动识别并点击 Alliance Help
 - 新增 `DigUpTreasure` 自动执行链路，并支持 `OpenClaw` 通知
 - 玩家信息识别：等级、体力、粮食、铁矿、金币、战力、钻石
@@ -34,7 +35,6 @@
 - `logs/Console_latest.log`：最近一次运行的控制台日志
 - `config.yaml`：主配置文件
 - `start.bat`：开发环境启动脚本（Python 方式）
-- `release_start.bat`：发布版 EXE 启动脚本
 - `run_lastwar_bot.py`：EXE 打包入口
 - `LastWarBot.spec`：PyInstaller 打包配置
 
@@ -94,6 +94,17 @@ start.bat
 - `F2` 启动连点时，会临时禁用 `F12`，并自动记录当时的实时监控状态
 - 再次按下 `F2` 停止连点时，会自动恢复到启动连点前的 `F12` 状态
 - 但若当前正在执行抢挖掘机自动化，按下 `F12` 会立刻中断该流程，并停止相关连点
+
+### `v0.2.4` 启动自动化与发布整理
+
+- 新增 `window.auto_launch_game`
+- 当未发现 `LastWar.exe` 时，可自动搜索并启动游戏
+- 新增 `startup.auto_f5_after_bot_launch_enabled`
+- 仅当本次游戏由 Bot 自动启动时，可在识别到基地后自动执行一次 `F5`
+- 新增 `startup.auto_f5_after_bot_launch_delay_seconds`
+- 该等待现在发生在首次识别之前，用于给游戏图形界面完整加载时间
+- 启动后的等待日志已收敛，避免每个轮询周期重复刷屏
+- 发布目录统一到 `releases/`，不再使用单独的 `release/` 目录
 
 ### `v0.2.3` 货车行为补充
 
@@ -245,7 +256,6 @@ pyinstaller --clean --noconfirm LastWarBot.spec
 - `.venv/`
 - `build/`
 - `dist/`
-- `release/`
 - `releases/*/package/`
 - `logs/`
 - `tmp_video_frames/`
