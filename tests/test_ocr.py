@@ -101,16 +101,16 @@ def test_extract_truck_power_from_panel_prefers_trimmed_candidate_when_icon_blee
     panel_rect = (0, 0, 320, 240)
     base_crop = np.zeros((48, 120, 3), dtype=np.uint8)
 
-    monkeypatch.setattr(reader, "_get_engine", lambda: object())
-    monkeypatch.setattr(reader, "_clip_region", lambda _frame, region: region)
-    monkeypatch.setattr(reader, "_crop", lambda _frame, _region: base_crop)
+    monkeypatch.setattr(OcrRegionReader, "_get_engine", lambda self: object())
+    monkeypatch.setattr(OcrRegionReader, "_clip_region", lambda self, _frame, region: region)
+    monkeypatch.setattr(OcrRegionReader, "_crop", lambda self, _frame, _region: base_crop)
 
     def fake_candidates(_engine, crop, scale=5, merge_lines=False, allow_fallback_variants=True):
         if crop.shape[1] == base_crop.shape[1]:
             return [("732.5M", 0.99)]
         return [("32.5M", 0.95)]
 
-    monkeypatch.setattr(reader, "_ocr_candidates_with_variants", fake_candidates)
+    monkeypatch.setattr(OcrRegionReader, "_ocr_candidates_with_variants", lambda self, *args, **kwargs: fake_candidates(*args, **kwargs))
 
     assert reader.extract_truck_power_from_panel(frame, panel_rect) == 32_500_000
 

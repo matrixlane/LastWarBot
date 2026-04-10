@@ -478,30 +478,58 @@ class TemplateMatcher:
     def find_truck_refresh_button(self, frame: np.ndarray) -> DetectionResult | None:
         frame_gray = self._to_gray(frame)
         panel_rect = self._detect_truck_panel_legacy(frame)
-        roi = self.config.regions["truck_refresh_button"]
+        rois = [self.config.regions["truck_refresh_button"]]
         if panel_rect is not None:
-            roi = self._normalized_roi_within_rect(frame_gray.shape[1], frame_gray.shape[0], panel_rect, roi)
-        result = self._find_best_in_gray(
-            frame_gray,
-            "truck_refresh_button",
-            self.config.thresholds.truck_refresh_button,
-            roi=roi,
-            multi_scale=True,
-        )
-        if result is not None:
-            return result
-        probe = self._find_best_in_gray(
-            frame_gray,
-            "truck_refresh_button",
-            -1.0,
-            roi=roi,
-            multi_scale=True,
-        )
-        if probe is not None and probe.confidence >= REFRESH_BUTTON_FALLBACK_THRESHOLD:
-            return probe
+            upper_panel_roi = self._normalized_roi_within_rect(
+                frame_gray.shape[1],
+                frame_gray.shape[0],
+                panel_rect,
+                (0.55, 0.00, 1.00, 0.18),
+            )
+            panel_roi = self._normalized_roi_within_rect(
+                frame_gray.shape[1],
+                frame_gray.shape[0],
+                panel_rect,
+                self.config.regions["truck_refresh_button"],
+            )
+            rois.insert(0, upper_panel_roi)
+            rois.insert(0, panel_roi)
+
+        best_result: DetectionResult | None = None
+        for roi in rois:
+            result = self._find_best_in_gray(
+                frame_gray,
+                "truck_refresh_button",
+                self.config.thresholds.truck_refresh_button,
+                roi=roi,
+                multi_scale=True,
+            )
+            if result is None:
+                continue
+            if best_result is None or result.confidence > best_result.confidence:
+                best_result = result
+        if best_result is not None:
+            return best_result
+
         blue_result = self._find_truck_refresh_button_blue(frame, panel_rect)
         if blue_result is not None:
             return blue_result
+
+        best_probe: DetectionResult | None = None
+        for roi in rois:
+            probe = self._find_best_in_gray(
+                frame_gray,
+                "truck_refresh_button",
+                -1.0,
+                roi=roi,
+                multi_scale=True,
+            )
+            if probe is None or probe.confidence < REFRESH_BUTTON_FALLBACK_THRESHOLD:
+                continue
+            if best_probe is None or probe.confidence > best_probe.confidence:
+                best_probe = probe
+        if best_probe is not None:
+            return best_probe
         return None
 
     def find_truck_share_button(self, frame: np.ndarray) -> DetectionResult | None:
@@ -865,7 +893,7 @@ class TemplateMatcher:
             if aspect < 0.75 or aspect > 1.25:
                 continue
             white_pixels = int(cv2.countNonZero(white_mask[y : y + h, x : x + w]))
-            if white_pixels < TRUCK_REFRESH_WHITE_MIN_PIXELS:
+            if white_pixels < TRUCK_REFRESH_WHITE_MIN_PIXELS and area < TRUCK_REFRESH_BLUE_MIN_AREA * 4:
                 continue
             abs_x = search_left + x
             abs_y = search_top + y
